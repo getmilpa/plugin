@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "require": {
     "php": ">=8.3",
-    "milpa/core": "^0.4",
+    "milpa/core": "^0.5",
     "psr/log": "^3"
   },
   "require-dev": {
