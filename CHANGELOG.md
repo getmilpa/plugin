@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/getmilpa/plugin/compare/v0.1.1...v0.1.2) (2026-07-12)
+
+
+### Bug Fixes
+
+* receive milpa/core 0.6 — pin bump; ContractResolver deprecated in favor of milpa/resolver ([0e811a8](https://github.com/getmilpa/plugin/commit/0e811a8e248c60cf3b761476f357048148f269c9))
+
 ## [0.1.1](https://github.com/getmilpa/plugin/compare/v0.1.0...v0.1.1) (2026-07-08)
 
 
