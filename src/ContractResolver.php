@@ -40,6 +40,13 @@ class ContractResolver
      * @param array<array{name?: string, provides?: array<string>, requires?: array<string>, suggests?: array<string>}> $plugins
      *
      * @throws \RuntimeException if a required dependency is missing
+     *
+     * @deprecated Superseded by milpa/resolver: {@see \Milpa\Resolver\Engine\GraphResolver::resolve()}
+     *             reaches the same verdict through the report — a required capability with no
+     *             provider lands in `missing[]` and blocks the graph (status `blocked`), with a
+     *             learnable error attached
+     *             ({@see \Milpa\Resolver\Report\ResolutionReport::firstLearnableLine()}) instead
+     *             of a bare RuntimeException.
      */
     public function validate(array $plugins): void
     {
@@ -76,6 +83,13 @@ class ContractResolver
      * @param array<array{name: string, class: string, provides?: array<string>, requires?: array<string>}> $plugins
      *
      * @return array<array{name: string, class: string, provides?: array<string>, requires?: array<string>}>
+     *
+     * @deprecated Superseded by milpa/resolver: the same Kahn pass lives in
+     *             {@see \Milpa\Resolver\Engine\GraphResolver} (semantics replicated exactly) and
+     *             its verdict travels as the report's `loadOrder[]`
+     *             ({@see \Milpa\Resolver\Report\ResolutionReport}) — the SAME resolution that
+     *             gates the graph also orders it. A dependency cycle becomes a learnable
+     *             `MILPA_DEPENDENCY_CYCLE` conflict on the report instead of a RuntimeException.
      */
     public function getLoadOrder(array $plugins): array
     {
