@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/getmilpa/plugin/compare/v0.1.2...v0.2.0) (2026-07-13)
+
+
+### Features
+
+* generateFromMetadata emits canonical capabilities from rich records — never invents metadata ([242ed42](https://github.com/getmilpa/plugin/commit/242ed42a79587b5624e22e861e3d068495fa380a))
+
 ## [0.1.2](https://github.com/getmilpa/plugin/compare/v0.1.1...v0.1.2) (2026-07-12)
 
 
