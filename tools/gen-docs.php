@@ -3,7 +3,7 @@
 /**
  * This file is part of milpa/plugin — the GitHub-native plugin distribution core of the Milpa PHP framework.
  *
- * (c) TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
  *
  * @license Apache-2.0
  *

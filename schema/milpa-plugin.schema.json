@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://milpa.lat/schema/milpa-plugin.schema.json",
+  "title": "Milpa plugin manifest",
+  "description": "Schema for a Milpa plugin manifest (milpa.json). Mirrors specs/012-core-library-extraction/contracts/capability-spec.md. Two capability formats are accepted: the canonical typed records under `capabilities.*` (preferred) and the legacy bare-FQCN arrays under `contracts.*`.",
+  "type": "object",
+  "required": ["name", "version", "type", "namespace", "entrypoint"],
+  "additionalProperties": true,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Composer-style package name: vendor/plugin, lowercase.",
+      "pattern": "^[a-z0-9]([a-z0-9._-]*)/[a-z0-9]([a-z0-9._-]*)$"
+    },
+    "displayName": { "type": "string" },
+    "description": { "type": "string" },
+    "version": {
+      "type": "string",
+      "description": "Semantic version.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "type": {
+      "type": "string",
+      "description": "Plugin kind (matches the #[PluginMetadata] type), e.g. Service, Mixed, Controller, Entity."
+    },
+    "license": { "type": "string" },
+    "authors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "email": { "type": "string" }
+        },
+        "required": ["name"],
+        "additionalProperties": true
+      }
+    },
+    "milpa": {
+      "type": "object",
+      "description": "Framework compatibility.",
+      "properties": {
+        "min-version": { "type": "string" },
+        "php-version": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Root PHP namespace of the plugin (backslash-separated)."
+    },
+    "entrypoint": {
+      "type": "string",
+      "description": "Plugin bootstrap class file, relative to the plugin root (e.g. MyPlugin.php)."
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Canonical typed capability records (capability-spec.md §3). Preferred over `contracts`.",
+      "additionalProperties": false,
+      "properties": {
+        "provides": { "type": "array", "items": { "$ref": "#/$defs/providesRecord" } },
+        "requires": { "type": "array", "items": { "$ref": "#/$defs/requiresRecord" } },
+        "suggests": { "type": "array", "items": { "$ref": "#/$defs/suggestsRecord" } }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "description": "Legacy capability declaration: bare interface FQCNs. Superseded by `capabilities`.",
+      "additionalProperties": false,
+      "properties": {
+        "provides": { "type": "array", "items": { "$ref": "#/$defs/fqcn" } },
+        "requires": { "type": "array", "items": { "$ref": "#/$defs/fqcn" } },
+        "suggests": { "type": "array", "items": { "$ref": "#/$defs/fqcn" } }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "properties": {
+        "plugins": { "type": "object" },
+        "composer": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "migrations": {
+      "type": "object",
+      "properties": { "directory": { "type": "string" } },
+      "additionalProperties": true
+    },
+    "env-vars": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "required": { "type": "boolean" },
+          "description": { "type": "string" }
+        },
+        "required": ["name"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "fqcn": {
+      "type": "string",
+      "description": "Fully-qualified PHP class/interface name.",
+      "pattern": "^\\\\?[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)+$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "providesRecord": {
+      "type": "object",
+      "description": "A capability this plugin provides. A provider carries a concrete contractVersion.",
+      "required": ["id", "interface", "contractVersion", "service"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Globally-unique capability id (unless exclusive=false)." },
+        "interface": { "$ref": "#/$defs/fqcn" },
+        "contractVersion": { "$ref": "#/$defs/semver" },
+        "service": { "$ref": "#/$defs/fqcn" },
+        "priority": { "type": "integer", "description": "Deterministic ordering when several providers match." },
+        "exclusive": { "type": "boolean", "default": true }
+      }
+    },
+    "requiresRecord": {
+      "type": "object",
+      "description": "A capability this plugin needs. A consumer carries a semver constraint (range).",
+      "required": ["id", "interface", "constraint"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "interface": { "$ref": "#/$defs/fqcn" },
+        "constraint": { "type": "string", "description": "Semver range, e.g. ^1.0." },
+        "oneOf": {
+          "type": "array",
+          "description": "Any listed provider id satisfies this requirement.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "suggestsRecord": {
+      "type": "object",
+      "description": "An optional capability. Missing suggests MUST NOT fail boot; code uses safe lookup.",
+      "required": ["id", "interface", "constraint"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "interface": { "$ref": "#/$defs/fqcn" },
+        "constraint": { "type": "string" },
+        "fallback": { "type": "string", "description": "Degradation path when absent, e.g. \"noop\"." }
+      }
+    }
+  }
+}

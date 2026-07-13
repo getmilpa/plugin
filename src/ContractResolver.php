@@ -4,7 +4,7 @@
  * This file is part of Milpa Plugin — the GitHub-native plugin distribution
  * core of the Milpa PHP framework.
  *
- * (c) TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
  *
  * @license Apache-2.0
  *
@@ -24,6 +24,11 @@ use Psr\Log\LoggerInterface;
  * - Validation of required dependencies (fail-fast on missing)
  * - Warning for missing suggested dependencies
  * - Topological sorting for proper load order
+ *
+ * Capability entries come in BOTH real shapes: legacy bare FQCN strings (matched verbatim, exactly
+ * as before) and canonical records — a `provides` record registers under both its `id` and its
+ * `interface`; a `requires`/`suggests` record is satisfied by its `id`, its `interface`, or any
+ * `oneOf` alternative (the same identity posture core's CapabilityGraphChecker adjudicated in T1).
  */
 class ContractResolver
 {
@@ -37,7 +42,7 @@ class ContractResolver
     /**
      * Validate that all required dependencies are satisfied.
      *
-     * @param array<array{name?: string, provides?: array<string>, requires?: array<string>, suggests?: array<string>}> $plugins
+     * @param array<array{name?: string, provides?: array<int, string|array<string, mixed>>, requires?: array<int, string|array<string, mixed>>, suggests?: array<int, string|array<string, mixed>>}> $plugins
      *
      * @throws \RuntimeException if a required dependency is missing
      *
@@ -59,9 +64,9 @@ class ContractResolver
 
             // Check hard dependencies
             foreach ($requires as $required) {
-                if (!isset($availableContracts[$required])) {
+                if ($this->providerFor($required, $availableContracts) === null) {
                     throw new \RuntimeException(
-                        "Plugin '{$pluginName}' requires '{$required}' but no plugin provides it. " .
+                        "Plugin '{$pluginName}' requires '{$this->labelOf($required)}' but no plugin provides it. " .
                         "Available contracts: " . implode(', ', array_keys($availableContracts))
                     );
                 }
@@ -69,8 +74,8 @@ class ContractResolver
 
             // Warn about missing soft dependencies
             foreach ($suggests as $suggested) {
-                if (!isset($availableContracts[$suggested])) {
-                    $this->log("Plugin '{$pluginName}' suggests '{$suggested}' which is not provided (optional)");
+                if ($this->providerFor($suggested, $availableContracts) === null) {
+                    $this->log("Plugin '{$pluginName}' suggests '{$this->labelOf($suggested)}' which is not provided (optional)");
                 }
             }
         }
@@ -114,12 +119,10 @@ class ContractResolver
             $requires = $plugin['requires'] ?? [];
 
             foreach ($requires as $required) {
-                if (isset($contractToPlugin[$required])) {
-                    $dependsOn = $contractToPlugin[$required];
-                    if ($dependsOn !== $name) { // Avoid self-dependency
-                        $graph[$dependsOn][] = $name;
-                        $inDegree[$name]++;
-                    }
+                $dependsOn = $this->providerFor($required, $contractToPlugin);
+                if ($dependsOn !== null && $dependsOn !== $name) { // Avoid self-dependency
+                    $graph[$dependsOn][] = $name;
+                    $inDegree[$name]++;
                 }
             }
         }
@@ -169,9 +172,11 @@ class ContractResolver
     }
 
     /**
-     * Build a map of contract => plugin name.
+     * Build a map of contract identity => plugin name. A bare FQCN registers verbatim (the exact
+     * legacy behavior); a canonical record registers under BOTH its `id` and its `interface`, so
+     * requirers of either shape find it.
      *
-     * @param array<array{name?: string, provides?: array<string>}> $plugins
+     * @param array<array{name?: string, provides?: array<int, string|array<string, mixed>>}> $plugins
      *
      * @return array<string, string>
      */
@@ -183,7 +188,9 @@ class ContractResolver
             $provides = $plugin['provides'] ?? [];
 
             foreach ($provides as $contract) {
-                $map[$contract] = $pluginName;
+                foreach ($this->identitiesOf($contract) as $identity) {
+                    $map[$identity] = $pluginName;
+                }
             }
         }
         return $map;
@@ -192,13 +199,88 @@ class ContractResolver
     /**
      * Build a map of contract => plugin name (for dependency resolution).
      *
-     * @param array<array{name?: string, provides?: array<string>}> $plugins
+     * @param array<array{name?: string, provides?: array<int, string|array<string, mixed>>}> $plugins
      *
      * @return array<string, string>
      */
     private function buildContractToPluginMap(array $plugins): array
     {
         return $this->buildContractMap($plugins);
+    }
+
+    /**
+     * The identities one capability entry answers to: a bare FQCN string is its own (single,
+     * verbatim) identity; a record answers to its `id` and its `interface`.
+     *
+     * @return list<string>
+     */
+    private function identitiesOf(mixed $entry): array
+    {
+        if (is_string($entry)) {
+            return $entry === '' ? [] : [$entry];
+        }
+
+        if (is_array($entry)) {
+            $identities = [];
+            foreach (['id', 'interface'] as $key) {
+                $value = $entry[$key] ?? null;
+                if (is_string($value) && trim($value) !== '') {
+                    $identities[] = trim($value);
+                }
+            }
+
+            return $identities;
+        }
+
+        return [];
+    }
+
+    /**
+     * Resolve the plugin that satisfies one requirement entry, or null when nobody does. A record
+     * requirement also tries its `oneOf` alternatives, mirroring the resolver's matching.
+     *
+     * @param array<string, string> $contractMap
+     */
+    private function providerFor(mixed $requirement, array $contractMap): ?string
+    {
+        $candidates = $this->identitiesOf($requirement);
+        if (is_array($requirement)) {
+            foreach ((array) ($requirement['oneOf'] ?? []) as $alternative) {
+                if (is_string($alternative) && trim($alternative) !== '') {
+                    $candidates[] = trim($alternative);
+                }
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if (isset($contractMap[$candidate])) {
+                return $contractMap[$candidate];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The display identity of one capability entry — the string itself, or a record's `id`
+     * (falling back to its `interface`) — for error and log messages.
+     */
+    private function labelOf(mixed $entry): string
+    {
+        if (is_string($entry)) {
+            return $entry;
+        }
+
+        if (is_array($entry)) {
+            foreach (['id', 'interface'] as $key) {
+                $value = $entry[$key] ?? null;
+                if (is_string($value) && trim($value) !== '') {
+                    return trim($value);
+                }
+            }
+        }
+
+        return get_debug_type($entry);
     }
 
     private function log(string $message): void

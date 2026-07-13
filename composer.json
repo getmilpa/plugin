@@ -3,6 +3,12 @@
   "description": "GitHub-native plugin distribution for the Milpa PHP framework: source parsing, semver-constrained release resolution, zipball download, milpa.json manifest reading/validation, dependency resolution, milpa.lock management, and contract-based load ordering.",
   "type": "library",
   "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Rodrigo Vicente - TeamX Agency",
+      "homepage": "https://teamx.agency"
+    }
+  ],
   "require": {
     "php": ">=8.3",
     "milpa/core": "^0.6",

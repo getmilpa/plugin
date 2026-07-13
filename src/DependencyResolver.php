@@ -4,7 +4,7 @@
  * This file is part of Milpa Plugin — the GitHub-native plugin distribution
  * core of the Milpa PHP framework.
  *
- * (c) TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
  *
  * @license Apache-2.0
  *
@@ -24,7 +24,9 @@ use Milpa\ValueObjects\SemanticVersion;
  * Checks:
  * - Plugin dependencies (dependencies.plugins in milpa.json)
  * - Composer packages (dependencies.composer in milpa.json)
- * - Contract requirements (contracts.requires)
+ * - Capability requirements (canonical `capabilities.requires` records or
+ *   legacy `contracts.requires` bare FQCNs — both shapes, via the manifest's
+ *   typed readers)
  */
 final class DependencyResolver
 {
@@ -38,8 +40,15 @@ final class DependencyResolver
     /**
      * Resolve all dependencies for a plugin to be installed.
      *
-     * @param PluginManifest                                                                                   $manifest         The plugin to install
-     * @param array<array{name: string, version?: string, provides?: array<string>, requires?: array<string>}> $installedPlugins
+     * Capability matching is by IDENTITY: an installed provision satisfies a requirement when
+     * its capability id or its interface equals the requirement's `id`, `interface`, or any
+     * `oneOf` alternative — the same one-directional superset posture core's
+     * CapabilityGraphChecker takes (an install preview must not fail a graph the resolver would
+     * close via the interface bridge or `oneOf`). Legacy bare-FQCN declarations on either side
+     * behave exactly as before: the FQCN is both id and interface.
+     *
+     * @param PluginManifest                                                                                                             $manifest         The plugin to install
+     * @param array<array{name: string, version?: string, provides?: array<int, string|array<string, mixed>>, requires?: array<string>}> $installedPlugins
      */
     public function resolve(PluginManifest $manifest, array $installedPlugins): DependencyResolution
     {
@@ -47,19 +56,30 @@ final class DependencyResolver
         $missingPlugins = [];
         $satisfiedContracts = [];
 
-        // 1. Check contract requirements
-        $allProvided = [];
+        // 1. Check capability requirements against every installed provision identity
+        $provided = [];
         foreach ($installedPlugins as $plugin) {
-            foreach ($plugin['provides'] ?? [] as $contract) {
-                $allProvided[] = $contract;
+            foreach ($plugin['provides'] ?? [] as $entry) {
+                foreach ($this->identitiesOf($entry) as $identity) {
+                    $provided[$identity] = true;
+                }
             }
         }
 
-        foreach ($manifest->getRequires() as $contract) {
-            if (in_array($contract, $allProvided, true)) {
-                $satisfiedContracts[] = $contract;
+        foreach ($manifest->getRequiredCapabilities() as $requirement) {
+            $candidates = [$requirement->id, $requirement->interface, ...$requirement->oneOf];
+            $satisfied = false;
+            foreach ($candidates as $candidate) {
+                if (isset($provided[ltrim($candidate, '\\')])) {
+                    $satisfied = true;
+                    break;
+                }
+            }
+
+            if ($satisfied) {
+                $satisfiedContracts[] = $requirement->id;
             } else {
-                $conflicts[] = "Missing contract: {$contract}";
+                $conflicts[] = "Missing contract: {$requirement->id}";
             }
         }
 
@@ -96,6 +116,35 @@ final class DependencyResolver
             conflicts: $conflicts,
             satisfiedContracts: $satisfiedContracts,
         );
+    }
+
+    /**
+     * The identities one provision entry answers to: a bare FQCN string is its own (single)
+     * identity; a canonical record answers to both its `id` and its `interface`. Normalized
+     * with `ltrim('\\')` so a leading-backslash FQCN and its bare form are equal (mirroring
+     * the resolver's DriftDetector).
+     *
+     * @return list<string>
+     */
+    private function identitiesOf(mixed $entry): array
+    {
+        if (is_string($entry) && trim($entry) !== '') {
+            return [ltrim(trim($entry), '\\')];
+        }
+
+        if (is_array($entry)) {
+            $identities = [];
+            foreach (['id', 'interface'] as $key) {
+                $value = $entry[$key] ?? null;
+                if (is_string($value) && trim($value) !== '') {
+                    $identities[] = ltrim(trim($value), '\\');
+                }
+            }
+
+            return $identities;
+        }
+
+        return [];
     }
 
     /**

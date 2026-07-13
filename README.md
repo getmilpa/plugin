@@ -77,12 +77,31 @@ $lock->generate([
 $lock->verify(); // true — the SHA-256 content hash matches
 ```
 
+## Generating a canonical manifest
+
+`PluginManifest::generateFromMetadata()` turns a plugin's `#[PluginMetadata]` into `milpa.json`
+data — and the capability entries decide the emitted shape; the generator never invents metadata:
+
+- **every entry a structured record** (`{id, interface, contractVersion, service, …}`) → the
+  canonical `capabilities` block, each record validated through core's capability value objects
+  **plus** a generation-time provider check (`service` present, autoloadable, and implementing the
+  declared interface). A record that fails validation is a **hard failure**
+  (`InvalidArgumentException`), never a silent downgrade;
+- **every entry a bare FQCN string** → the legacy `contracts` block exactly as before, plus a
+  `$warnings` entry teaching how to reach canonical;
+- **a mix of both shapes** in one plugin → hard failure: one plugin migrates atomically.
+
+The canonical shape is frozen in [`schema/milpa-plugin.schema.json`](schema/milpa-plugin.schema.json),
+which ships with this package — the suite's schema-conformance tests run against that exact file.
+Overwrite policy is the **host's** concern: a host command (e.g. `coa:plugins manifest --force`)
+decides whether an existing `milpa.json` may be replaced; the generator only returns the array.
+
 ## What lives where
 
 | Class | Responsibility |
 |-------|-----------------|
 | `GitHubDownloader` | Parses `owner/repo[:constraint]` / full GitHub URLs, lists releases/tags via the GitHub REST API, resolves the best version for a constraint, and downloads + extracts the matching zipball. Reads `GITHUB_TOKEN` for private repos or higher rate limits. |
-| `PluginManifest` | Reads and validates a `milpa.json` manifest (`fromPath()` / `fromArray()`), exposes typed accessors (`getProvides()`, `getRequires()`, `getSuggests()`, typed `CapabilityProvision`/`CapabilityRequirement`/`CapabilitySuggestion` records, Composer/plugin dependencies, PHP version constraint, env vars), and can generate a manifest skeleton from `#[PluginMetadata]` attributes. |
+| `PluginManifest` | Reads and validates a `milpa.json` manifest (`fromPath()` / `fromArray()`), exposes typed accessors (`getProvides()`, `getRequires()`, `getSuggests()`, typed `CapabilityProvision`/`CapabilityRequirement`/`CapabilitySuggestion` records, Composer/plugin dependencies, PHP version constraint, env vars), and generates a manifest from `#[PluginMetadata]` via `generateFromMetadata()` — canonical `capabilities` block for rich records, legacy `contracts` block (with a teaching warning) for bare FQCNs, hard failure on a mix. |
 | `ContractResolver` | Validates that every plugin's `requires` is satisfied by some other plugin's `provides` (fail-fast, throws `RuntimeException`; `suggests` only logs), and topologically sorts plugins into a load order where providers come before consumers. |
 | `DependencyResolver` | Resolves a plugin's contract requirements, plugin-to-plugin dependencies (with version constraint checks), and Composer dependencies (read from `composer.lock`) into a single `Milpa\DTO\DependencyResolution` — `resolvable`, `conflicts`, `missingPlugins`, `composerPackages`, `satisfiedContracts`. |
 | `LockFileManager` | Generates, reads, and verifies `milpa.lock` — installed plugin names, versions, sources, install timestamps, and a SHA-256 content hash for integrity checks. |
@@ -90,7 +109,7 @@ $lock->verify(); // true — the SHA-256 content hash matches
 ## Requirements
 
 - PHP **≥ 8.3**
-- [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.4**
+- [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.6**
 - [`psr/log`](https://packagist.org/packages/psr/log) **^3**
 
 ## Documentation
@@ -106,8 +125,8 @@ issues via [SECURITY.md](SECURITY.md), and note that this project follows a
 
 ## License
 
-[Apache-2.0](LICENSE) © TeamX Agency.
+[Apache-2.0](LICENSE) © Rodrigo Vicente - TeamX Agency.
 
 ---
 
-Milpa is designed, built, and maintained by **[TeamX Agency](https://teamx.agency/?utm_source=github&utm_medium=readme&utm_campaign=milpa&utm_content=plugin)**.
+Milpa is designed, built, and maintained by **[Rodrigo Vicente - TeamX Agency](https://teamx.agency/?utm_source=github&utm_medium=readme&utm_campaign=milpa&utm_content=plugin)**.
