@@ -1,0 +1,7 @@
+milpa/plugin — GitHub-native plugin distribution for the Milpa PHP framework: source parsing, semver-constrained release resolution, zipball download, milpa.json manifest reading/validation, dependency resolution, milpa.lock management, and contract-based load ordering.
+Copyright 2026 Rodrigo Vicente Gómez / TeamX Agency
+
+This product includes software developed by
+Rodrigo Vicente - TeamX Agency — https://x.com/rodrigoteamx
+
+https://teamx.agency · https://github.com/getmilpa/plugin
