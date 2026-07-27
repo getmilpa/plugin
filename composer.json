@@ -34,7 +34,8 @@
   "autoload-dev": {
     "psr-4": {
       "Milpa\\Plugin\\Tests\\": "tests/",
-      "Milpa\\Docs\\": "vendor/milpa/core/tools/gen-docs/"
+      "Milpa\\Docs\\": "vendor/milpa/core/tools/gen-docs/",
+      "Milpa\\Plugins\\": "tests/Fixtures/Plugins/"
     }
   }
 }

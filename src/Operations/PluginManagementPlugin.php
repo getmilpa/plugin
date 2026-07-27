@@ -21,6 +21,7 @@ use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
+use Milpa\Plugin\Activation\DeclaredPlugins;
 use Milpa\Plugin\PluginBase;
 
 /**
@@ -109,9 +110,16 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
 
         $installer = $this->tryGetService(PluginInstallerInterface::class);
 
+        // The declared list comes from the container, where `ActivePlugins::wire()`
+        // put the very array the kernel booted from. A host that wired the
+        // registry by hand may not have it; then only store records are known,
+        // which is exactly what such a host has.
+        $declared = $this->tryGetService(DeclaredPlugins::class);
+
         return (new PluginOperations(
             $registry,
             $installer instanceof PluginInstallerInterface ? $installer : null,
+            $declared instanceof DeclaredPlugins ? $declared->classes : [],
         ))->operations();
     }
 }

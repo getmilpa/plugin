@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace Milpa\Plugin\Operations;
 
+use Milpa\Attributes\PluginMetadata;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
@@ -33,12 +34,26 @@ use Milpa\Plugin\Contracts\PluginRegistryInterface;
  * read-and-toggle operations exist. With an installer too, the three that reach
  * the network appear as well — a host that never wired one does not get an
  * `install` button that fails when pressed.
+ *
+ * A host has plugins from two places and these operations report both: what it
+ * **declares in code** and what its **store** holds. A declared plugin has no
+ * record until somebody switches it off — that is what keeps a store from
+ * appearing in an app that never manages anything — so listing only records
+ * would show an empty panel to an app that is running plugins right now, and
+ * disabling one would fail with "not installed" for every plugin it has.
  */
 final readonly class PluginOperations
 {
+    /**
+     * @param list<class-string> $declared The plugin classes the host declares in code. They have
+     *                                     no registry record until somebody switches one off, so
+     *                                     without them a freshly-installed app reports that it has
+     *                                     no plugins while running two.
+     */
     public function __construct(
         private PluginRegistryInterface $registry,
         private ?PluginInstallerInterface $installer = null,
+        private array $declared = [],
     ) {
     }
 
@@ -190,11 +205,71 @@ final readonly class PluginOperations
      */
     private function list(array $input): array
     {
-        $records = ($input['enabledOnly'] ?? false) === true
-            ? $this->registry->installedAndEnabled()
-            : $this->registry->installed();
+        $records = $this->known();
+        if (($input['enabledOnly'] ?? false) === true) {
+            $records = array_filter($records, static fn (PluginRecord $r): bool => $r->enabled);
+        }
 
-        return ['plugins' => array_map($this->describe(...), $records)];
+        return ['plugins' => array_map($this->describe(...), array_values($records))];
+    }
+
+    /**
+     * Every plugin this host has, from both places it can have one: the store,
+     * plus whatever it declares in code that the store has never heard of.
+     *
+     * Store records win on conflict — a record only exists because somebody
+     * acted on that plugin, and that decision outranks the default.
+     *
+     * @return array<string, PluginRecord>
+     */
+    private function known(): array
+    {
+        $records = [];
+        foreach ($this->registry->installed() as $record) {
+            $records[$record->name] = $record;
+        }
+
+        foreach ($this->declared as $class) {
+            $record = $this->recordFor($class);
+            if ($record !== null && !isset($records[$record->name])) {
+                $records[$record->name] = $record;
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * The record a declared class would have: read from its `#[PluginMetadata]`,
+     * enabled (declaring it is what turns it on), and sourced as `declared` so a
+     * surface can tell it apart from something installed at runtime — one can be
+     * removed, the other only by editing code.
+     *
+     * @param class-string $class
+     */
+    private function recordFor(string $class): ?PluginRecord
+    {
+        if (!class_exists($class)) {
+            return null;
+        }
+
+        $attributes = (new \ReflectionClass($class))->getAttributes(PluginMetadata::class);
+        if ($attributes === []) {
+            return null;
+        }
+
+        $metadata = $attributes[0]->newInstance();
+
+        return new PluginRecord(
+            name: $metadata->name,
+            version: $metadata->version,
+            author: $metadata->author,
+            site: $metadata->site,
+            type: $metadata->type,
+            installed: true,
+            enabled: true,
+            source: 'declared',
+        );
     }
 
     /**
@@ -215,11 +290,18 @@ final readonly class PluginOperations
     private function setEnabled(array $input, bool $enabled): array
     {
         $name = $this->name($input);
-        // The registry throws on an unknown name, but only after it has read
-        // the store; asking first is what lets every operation here fail the
-        // same way with the same message.
-        $this->mustFind($name);
-        $this->registry->setEnabled($name, $enabled);
+        $record = $this->mustFind($name);
+
+        if ($this->registry->find($name) === null) {
+            // A declared plugin with no record yet: switching it is the first
+            // thing anyone ever did to it, so the record is created here rather
+            // than at boot. That is what keeps an app that never manages
+            // anything from growing a store it does not use.
+            $this->registry->register($record->withEnabled($enabled));
+        } else {
+            $this->registry->setEnabled($name, $enabled);
+        }
+
         $this->registry->invalidateActivationCache();
 
         return ['name' => $name, 'enabled' => $enabled];
@@ -296,7 +378,14 @@ final readonly class PluginOperations
     private function remove(array $input): array
     {
         $name = $this->name($input);
-        $this->mustFind($name);
+        $record = $this->mustFind($name);
+
+        if ($record->source === 'declared') {
+            throw new \RuntimeException(
+                "Plugin {$name} is declared in this app's code. Remove its line from the plugin list; "
+                . 'disable it here if what you want is for it to stop running.',
+            );
+        }
 
         $result = $this->installer?->remove($name, ($input['keepData'] ?? false) === true)
             ?? throw new \LogicException('No installer is wired on this host.');
@@ -325,7 +414,7 @@ final readonly class PluginOperations
 
     private function mustFind(string $name): PluginRecord
     {
-        return $this->registry->find($name)
+        return $this->known()[$name]
             ?? throw new \RuntimeException("Plugin {$name} is not installed.");
     }
 

@@ -61,12 +61,14 @@ final class PluginOperationsTest extends TestCase
     }
 
     /**
+     * @param list<class-string> $declared
+     *
      * @return array<string, Operation>
      */
-    private function operations(?PluginInstallerInterface $installer = null): array
+    private function operations(?PluginInstallerInterface $installer = null, array $declared = []): array
     {
         $byName = [];
-        foreach ((new PluginOperations($this->registry, $installer))->operations() as $operation) {
+        foreach ((new PluginOperations($this->registry, $installer, $declared))->operations() as $operation) {
             $byName[$operation->name] = $operation;
         }
 
@@ -75,10 +77,11 @@ final class PluginOperationsTest extends TestCase
 
     /**
      * @param array<string, mixed> $input
+     * @param list<class-string>   $declared
      */
-    private function call(string $name, array $input = [], ?PluginInstallerInterface $installer = null): mixed
+    private function call(string $name, array $input = [], ?PluginInstallerInterface $installer = null, array $declared = []): mixed
     {
-        $operation = $this->operations($installer)[$name] ?? self::fail("No operation named {$name}.");
+        $operation = $this->operations($installer, $declared)[$name] ?? self::fail("No operation named {$name}.");
 
         return ($operation->handler)($input);
     }
@@ -352,6 +355,98 @@ final class PluginOperationsTest extends TestCase
         $this->call('plugins.remove', ['name' => 'LocalPlugin'], $installer);
     }
 
+
+    // =========================================================================
+    // what the host declares in code
+    // =========================================================================
+
+    public function testAPluginDeclaredInCodeIsReportedEvenWithNoRecordAtAll(): void
+    {
+        // The state a freshly-installed app is in: two plugins running, an
+        // empty store. Reporting nothing here would show an empty panel to an
+        // app that is running plugins right now.
+        $result = $this->call('plugins.list', [], null, [DeclaredFixturePlugin::class]);
+
+        self::assertSame([[
+            'name' => 'DeclaredFixture',
+            'version' => '2.1.0',
+            'author' => 'Acme',
+            'site' => 'https://example.com',
+            'type' => 'Service',
+            'installed' => true,
+            'enabled' => true,
+            'source' => 'declared',
+            'installedAt' => null,
+        ]], $result['plugins']);
+    }
+
+    public function testARecordOverridesWhatTheDeclarationWouldHaveSaid(): void
+    {
+        // A record only exists because somebody acted on that plugin. That
+        // decision outranks the default the declaration carries.
+        $this->registry->register($this->record('DeclaredFixture', enabled: false));
+
+        $plugins = $this->call('plugins.list', [], null, [DeclaredFixturePlugin::class])['plugins'];
+
+        self::assertCount(1, $plugins, 'It must be reported once, not twice.');
+        self::assertFalse($plugins[0]['enabled']);
+    }
+
+    public function testDisablingADeclaredPluginCreatesItsRecord(): void
+    {
+        // The store starts empty and only records deviations, so the first
+        // switch is what brings a record into existence.
+        self::assertNull($this->registry->find('DeclaredFixture'));
+
+        $this->call('plugins.disable', ['name' => 'DeclaredFixture'], null, [DeclaredFixturePlugin::class]);
+
+        $record = $this->registry->find('DeclaredFixture');
+        self::assertNotNull($record);
+        self::assertFalse($record->enabled);
+        self::assertSame('2.1.0', $record->version, 'The record is built from the metadata the class declares.');
+    }
+
+    public function testADeclaredPluginCanBeSwitchedBackOnAfterBeingSwitchedOff(): void
+    {
+        $declared = [DeclaredFixturePlugin::class];
+
+        $this->call('plugins.disable', ['name' => 'DeclaredFixture'], null, $declared);
+        $this->call('plugins.enable', ['name' => 'DeclaredFixture'], null, $declared);
+
+        self::assertTrue($this->registry->find('DeclaredFixture')?->enabled);
+    }
+
+    public function testADeclaredPluginCannotBeRemovedFromASurface(): void
+    {
+        // Removing it would delete files the app's own code still names. The
+        // message says what to do instead rather than just refusing.
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('declared in this app\'s code');
+
+        $this->call('plugins.remove', ['name' => 'DeclaredFixture'], $this->installer(), [DeclaredFixturePlugin::class]);
+    }
+
+    public function testADeclaredClassWithNoMetadataIsNotReported(): void
+    {
+        // Without metadata there is no name, and a plugin with no name cannot
+        // be switched — listing it would offer a control that cannot work.
+        /** @var list<class-string> $declared */
+        $declared = [NamelessFixturePlugin::class, DeclaredFixturePlugin::class];
+
+        self::assertSame(
+            ['DeclaredFixture'],
+            array_column($this->call('plugins.list', [], null, $declared)['plugins'], 'name'),
+        );
+    }
+
+    public function testADeclaredClassThatDoesNotExistIsNotReported(): void
+    {
+        /** @var list<class-string> $declared */
+        $declared = ['App\\Plugins\\Typo\\Typo'];
+
+        self::assertSame(['plugins' => []], $this->call('plugins.list', [], null, $declared));
+    }
+
     /**
      * A scripted installer that records what it was asked to do.
      */
@@ -411,4 +506,14 @@ final class PluginOperationsTest extends TestCase
             }
         };
     }
+}
+
+#[\Milpa\Attributes\PluginMetadata(version: '2.1.0', author: 'Acme', site: 'https://example.com', name: 'DeclaredFixture', type: 'Service')]
+final class DeclaredFixturePlugin
+{
+}
+
+/** A declared class carrying no metadata: it has no name to switch. */
+final class NamelessFixturePlugin
+{
 }

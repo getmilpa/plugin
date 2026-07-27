@@ -117,6 +117,32 @@ the container it gets the four read-and-toggle operations; wire a
 well — a host without an installer never renders an install button that fails
 when pressed.
 
+### Declared in code, switched at runtime
+
+A host has plugins from two places, and `ActivePlugins` decides which of them
+boot:
+
+```php
+// config/boot.php — the one call, so the store the kernel boots from and the
+// store the operations write to cannot end up being two different files.
+$container = new DIContainer();
+$plugins = ActivePlugins::wire($container, require __DIR__ . '/plugins.php', __DIR__ . '/../storage/plugins.json');
+```
+
+- A **declared** class with no record **boots**. Adding a line to the list is
+  all it takes, and an app that never manages anything never grows a state file.
+- A declared class the store says is disabled **does not boot**. The first time
+  anyone switches one off, that is when its record is created.
+- A **record** that is installed, enabled and whose class resolves **boots**,
+  even though nobody declared it — a plugin installed at runtime.
+- A declared plugin cannot be `remove`d from a surface: it is named by the app's
+  own code, so the operation says to delete its line instead. Disabling it is
+  what a surface can do.
+
+That separation is the whole point. Activation is state, so a panel can change
+it; the list is code, so a person reads it in a diff. Neither surface ever
+writes PHP back to disk.
+
 Two decisions are deliberate. The three operations that fetch and run somebody
 else's code declare `requiresConfirmation`, so whatever surface is driving gets
 to put that in front of a person. And a freshly installed plugin arrives
