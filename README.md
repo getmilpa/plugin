@@ -87,6 +87,41 @@ $lock->generate([
 $lock->verify(); // true — the SHA-256 content hash matches
 ```
 
+## Managing plugins from any surface
+
+Listing, enabling, installing and removing a plugin are **operations**
+(`milpa/command`), not CLI commands — defined once, projected by the host to
+whichever surfaces it runs. Add `PluginManagementPlugin` to the host's plugin
+list and the same seven operations appear in the terminal, over HTTP, and to an
+MCP client, without a controller per surface:
+
+| Operation | Mutating | Confirms | Scope |
+|-----------|----------|----------|-------|
+| `plugins.list` / `plugins.show` | no | no | `plugins:read` |
+| `plugins.enable` / `plugins.disable` | yes | no | `plugins:write` |
+| `plugins.install` / `plugins.update` | yes | **yes** | `plugins:install` |
+| `plugins.remove` | yes | **yes** | `plugins:write` |
+
+```php
+use Milpa\Plugin\Operations\PluginManagementPlugin;
+
+return [
+    PluginManagementPlugin::class,
+    // ...
+];
+```
+
+What a host gets depends on what it wired. With a `PluginRegistryInterface` in
+the container it gets the four read-and-toggle operations; wire a
+`PluginInstallerInterface` too and the three that reach out for code appear as
+well — a host without an installer never renders an install button that fails
+when pressed.
+
+Two decisions are deliberate. The three operations that fetch and run somebody
+else's code declare `requiresConfirmation`, so whatever surface is driving gets
+to put that in front of a person. And a freshly installed plugin arrives
+**disabled**: installing is not consenting to run it.
+
 ## Generating a canonical manifest
 
 `PluginManifest::generateFromMetadata()` turns a plugin's `#[PluginMetadata]` into `milpa.json`

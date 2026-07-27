@@ -1,0 +1,414 @@
+<?php
+
+/**
+ * This file is part of Milpa Plugin — the GitHub-native plugin distribution
+ * core of the Milpa PHP framework.
+ *
+ * (c) Rodrigo Vicente - TeamX Agency — https://teamx.agency <hola@teamx.agency>
+ *
+ * @license Apache-2.0
+ *
+ * @link    https://github.com/getmilpa/plugin
+ */
+
+declare(strict_types=1);
+
+namespace Milpa\Plugin\Tests\Operations;
+
+use Milpa\Command\Operation;
+use Milpa\DTO\DependencyResolution;
+use Milpa\DTO\PluginInstallResult;
+use Milpa\DTO\PluginRemoveResult;
+use Milpa\Interfaces\Plugin\PluginInstallerInterface;
+use Milpa\Plugin\Contracts\PluginRecord;
+use Milpa\Plugin\Operations\PluginOperations;
+use Milpa\Plugin\Registry\InMemoryPluginRegistry;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Plugin management as operations.
+ *
+ * The handlers are called directly here, the way a projector calls them: the
+ * point of the atom is that CLI, HTTP and MCP all arrive at exactly this, so
+ * what is worth pinning is the behaviour, the shape it returns, and the
+ * metadata each surface reads to decide what to do — is it mutating, does it
+ * need confirming, what scope does it want.
+ */
+final class PluginOperationsTest extends TestCase
+{
+    private InMemoryPluginRegistry $registry;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->registry = new InMemoryPluginRegistry();
+    }
+
+    private function record(string $name, bool $enabled = true, ?string $source = 'local'): PluginRecord
+    {
+        return new PluginRecord(
+            name: $name,
+            version: '1.0.0',
+            author: 'Acme',
+            site: 'https://example.com',
+            type: 'Service',
+            installed: true,
+            enabled: $enabled,
+            source: $source,
+            installedVersion: $source !== null && $source !== 'local' ? '1.2.0' : null,
+            installedAt: $source !== null && $source !== 'local' ? new \DateTimeImmutable('2026-01-15T10:00:00+00:00') : null,
+        );
+    }
+
+    /**
+     * @return array<string, Operation>
+     */
+    private function operations(?PluginInstallerInterface $installer = null): array
+    {
+        $byName = [];
+        foreach ((new PluginOperations($this->registry, $installer))->operations() as $operation) {
+            $byName[$operation->name] = $operation;
+        }
+
+        return $byName;
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     */
+    private function call(string $name, array $input = [], ?PluginInstallerInterface $installer = null): mixed
+    {
+        $operation = $this->operations($installer)[$name] ?? self::fail("No operation named {$name}.");
+
+        return ($operation->handler)($input);
+    }
+
+    // =========================================================================
+    // what exists, and what a surface reads off it
+    // =========================================================================
+
+    public function testAHostWithOnlyARegistryGetsTheReadAndToggleOperations(): void
+    {
+        self::assertSame(
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable'],
+            array_keys($this->operations()),
+        );
+    }
+
+    public function testAHostWithAnInstallerAlsoGetsTheOnesThatReachTheNetwork(): void
+    {
+        // A host that never wired an installer must not be handed an install
+        // button: the panel would render it and it would fail when pressed.
+        self::assertSame(
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.install', 'plugins.update', 'plugins.remove'],
+            array_keys($this->operations($this->installer())),
+        );
+    }
+
+    public function testReadingIsNotMutatingAndWritingIs(): void
+    {
+        $operations = $this->operations($this->installer());
+
+        self::assertFalse($operations['plugins.list']->mutating);
+        self::assertFalse($operations['plugins.show']->mutating);
+        self::assertTrue($operations['plugins.enable']->mutating);
+        self::assertTrue($operations['plugins.disable']->mutating);
+        self::assertTrue($operations['plugins.install']->mutating);
+    }
+
+    public function testOnlyTheOperationsThatRunSomebodyElsesCodeAskToBeConfirmed(): void
+    {
+        // Enabling a plugin already on disk is reversible with one more call;
+        // installing runs code that was not here a moment ago and can pull
+        // composer packages with it. Only the second kind stops to ask.
+        $operations = $this->operations($this->installer());
+
+        self::assertFalse($operations['plugins.enable']->requiresConfirmation);
+        self::assertTrue($operations['plugins.install']->requiresConfirmation);
+        self::assertTrue($operations['plugins.update']->requiresConfirmation);
+        self::assertTrue($operations['plugins.remove']->requiresConfirmation);
+    }
+
+    public function testInstallingIsGuardedBySomethingStricterThanWriting(): void
+    {
+        $operations = $this->operations($this->installer());
+
+        self::assertSame(['plugins:read'], $operations['plugins.list']->scopes);
+        self::assertSame(['plugins:write'], $operations['plugins.enable']->scopes);
+        self::assertSame(['plugins:install'], $operations['plugins.install']->scopes);
+    }
+
+    public function testEveryOperationDeclaresAnHttpPath(): void
+    {
+        foreach ($this->operations($this->installer()) as $name => $operation) {
+            self::assertNotNull($operation->path, "{$name} has no path, so the HTTP projector has to invent one.");
+        }
+    }
+
+    // =========================================================================
+    // listing
+    // =========================================================================
+
+    public function testListingReportsEveryInstalledPluginInAShapeASurfaceCanRender(): void
+    {
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+
+        $result = $this->call('plugins.list');
+
+        self::assertSame([[
+            'name' => 'MailPlugin',
+            'version' => '1.2.0',
+            'author' => 'Acme',
+            'site' => 'https://example.com',
+            'type' => 'Service',
+            'installed' => true,
+            'enabled' => true,
+            'source' => 'github:acme/mail-plugin',
+            'installedAt' => '2026-01-15T10:00:00+00:00',
+        ]], $result['plugins']);
+    }
+
+    public function testTheVersionShownIsTheOneActuallyInstalled(): void
+    {
+        // A record carries both the declared version and the one a remote
+        // install actually landed. Showing the declared one would tell a
+        // person they are running something they are not.
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+        $this->registry->register($this->record('LocalPlugin'));
+
+        $versions = array_column($this->call('plugins.list')['plugins'], 'version', 'name');
+
+        self::assertSame(['MailPlugin' => '1.2.0', 'LocalPlugin' => '1.0.0'], $versions);
+    }
+
+    public function testListingCanBeNarrowedToWhatActuallyBoots(): void
+    {
+        $this->registry->register($this->record('On'));
+        $this->registry->register($this->record('Off', enabled: false));
+
+        self::assertSame(['On', 'Off'], array_column($this->call('plugins.list')['plugins'], 'name'));
+        self::assertSame(['On'], array_column($this->call('plugins.list', ['enabledOnly' => true])['plugins'], 'name'));
+    }
+
+    public function testListingAnEmptyHostIsAnEmptyListAndNotAFailure(): void
+    {
+        self::assertSame(['plugins' => []], $this->call('plugins.list'));
+    }
+
+    public function testShowingOnePluginReturnsTheSameShapeAsALine(): void
+    {
+        $this->registry->register($this->record('MailPlugin'));
+
+        self::assertSame($this->call('plugins.list')['plugins'][0], $this->call('plugins.show', ['name' => 'MailPlugin']));
+    }
+
+    // =========================================================================
+    // toggling
+    // =========================================================================
+
+    public function testEnablingAndDisablingMoveTheFlagAndSayWhatTheyDid(): void
+    {
+        $this->registry->register($this->record('MailPlugin', enabled: false));
+
+        self::assertSame(['name' => 'MailPlugin', 'enabled' => true], $this->call('plugins.enable', ['name' => 'MailPlugin']));
+        self::assertTrue($this->registry->find('MailPlugin')?->enabled);
+
+        self::assertSame(['name' => 'MailPlugin', 'enabled' => false], $this->call('plugins.disable', ['name' => 'MailPlugin']));
+        self::assertFalse($this->registry->find('MailPlugin')?->enabled);
+    }
+
+    public function testTogglingAPluginThatIsNotThereSaysSo(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Plugin Ghost is not installed.');
+
+        $this->call('plugins.enable', ['name' => 'Ghost']);
+    }
+
+    public function testAnOperationThatNamesAPluginRefusesAnEmptyName(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A plugin name is required.');
+
+        $this->call('plugins.show', ['name' => '']);
+    }
+
+    // =========================================================================
+    // installing, updating, removing
+    // =========================================================================
+
+    public function testInstallingReportsWhatLandedAndLeavesItSwitchedOff(): void
+    {
+        // Installing is not consenting to run it. Booting somebody else's code
+        // the instant it arrives takes away the one moment a person has to
+        // look at it first.
+        $result = $this->call('plugins.install', ['source' => 'acme/mail-plugin:^2.0'], $this->installer());
+
+        self::assertSame('MailPlugin', $result['name']);
+        self::assertSame('2.0.0', $result['version']);
+        self::assertFalse($result['enabled']);
+        self::assertSame(['acme/lib' => '^1.0'], $result['composerPackagesInstalled']);
+        self::assertSame(2, $result['migrationsExecuted']);
+    }
+
+    public function testInstallingWithoutASourceSaysWhatIsMissing(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A source is required');
+
+        $this->call('plugins.install', [], $this->installer());
+    }
+
+    public function testAFailedInstallSurfacesTheReasonRatherThanAFalse(): void
+    {
+        $installer = $this->installer(installResult: new PluginInstallResult(
+            success: false,
+            pluginName: 'MailPlugin',
+            version: '0.0.0',
+            source: 'acme/mail-plugin',
+            error: 'Missing required plugins: QueuePlugin',
+        ));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Missing required plugins: QueuePlugin');
+
+        $this->call('plugins.install', ['source' => 'acme/mail-plugin'], $installer);
+    }
+
+    public function testUpdatingCarriesTheNoteTheInstallerAttachedToASuccess(): void
+    {
+        // "Already at latest" arrives as a successful result with a message.
+        // Collapsing that into a bare true would leave a person pressing
+        // update and seeing nothing happen, twice.
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+        $installer = $this->installer(updateResult: new PluginInstallResult(
+            success: true,
+            pluginName: 'MailPlugin',
+            version: '1.2.0',
+            source: 'github:acme/mail-plugin',
+            error: 'Already at latest version v1.2.0',
+        ));
+
+        $result = $this->call('plugins.update', ['name' => 'MailPlugin'], $installer);
+
+        self::assertSame('1.2.0', $result['version']);
+        self::assertSame('Already at latest version v1.2.0', $result['note']);
+    }
+
+    public function testUpdatingPassesTheRequestedVersionThroughAndAnEmptyOneAsNone(): void
+    {
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+        $installer = $this->installer();
+
+        $this->call('plugins.update', ['name' => 'MailPlugin', 'version' => '^2.0'], $installer);
+        $this->call('plugins.update', ['name' => 'MailPlugin', 'version' => ''], $installer);
+
+        self::assertSame([['MailPlugin', '^2.0'], ['MailPlugin', null]], $installer->updates);
+    }
+
+    public function testUpdatingSomethingThatIsNotInstalledStopsBeforeTheNetwork(): void
+    {
+        $installer = $this->installer();
+
+        try {
+            $this->call('plugins.update', ['name' => 'Ghost'], $installer);
+            self::fail('Expected a RuntimeException.');
+        } catch (\RuntimeException $e) {
+            self::assertSame('Plugin Ghost is not installed.', $e->getMessage());
+        }
+
+        self::assertSame([], $installer->updates, 'The guard must fire before the installer is called.');
+    }
+
+    public function testRemovingReportsWhetherTheDataWasKept(): void
+    {
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+        $installer = $this->installer();
+
+        $result = $this->call('plugins.remove', ['name' => 'MailPlugin', 'keepData' => true], $installer);
+
+        self::assertSame(['name' => 'MailPlugin', 'removed' => true, 'dataKept' => true], $result);
+        self::assertSame([['MailPlugin', true]], $installer->removals);
+    }
+
+    public function testRemovingDefaultsToTakingTheDataWithIt(): void
+    {
+        $this->registry->register($this->record('MailPlugin', source: 'github:acme/mail-plugin'));
+        $installer = $this->installer();
+
+        $this->call('plugins.remove', ['name' => 'MailPlugin'], $installer);
+
+        self::assertSame([['MailPlugin', false]], $installer->removals);
+    }
+
+    public function testAFailedRemovalSurfacesTheReason(): void
+    {
+        $this->registry->register($this->record('LocalPlugin'));
+        $installer = $this->installer(removeResult: PluginRemoveResult::failure('LocalPlugin', 'Plugin LocalPlugin was installed locally.'));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('installed locally');
+
+        $this->call('plugins.remove', ['name' => 'LocalPlugin'], $installer);
+    }
+
+    /**
+     * A scripted installer that records what it was asked to do.
+     */
+    private function installer(
+        ?PluginInstallResult $installResult = null,
+        ?PluginInstallResult $updateResult = null,
+        ?PluginRemoveResult $removeResult = null,
+    ): PluginInstallerInterface {
+        return new class ($installResult, $updateResult, $removeResult) implements PluginInstallerInterface {
+            /** @var list<array{string, ?string}> */
+            public array $updates = [];
+
+            /** @var list<array{string, bool}> */
+            public array $removals = [];
+
+            public function __construct(
+                private readonly ?PluginInstallResult $installResult,
+                private readonly ?PluginInstallResult $updateResult,
+                private readonly ?PluginRemoveResult $removeResult,
+            ) {
+            }
+
+            public function require(string $source): PluginInstallResult
+            {
+                return $this->installResult ?? new PluginInstallResult(
+                    success: true,
+                    pluginName: 'MailPlugin',
+                    version: '2.0.0',
+                    source: 'github:acme/mail-plugin',
+                    composerPackagesInstalled: ['acme/lib' => '^1.0'],
+                    migrationsExecuted: 2,
+                );
+            }
+
+            public function update(string $pluginName, ?string $targetVersion = null): PluginInstallResult
+            {
+                $this->updates[] = [$pluginName, $targetVersion];
+
+                return $this->updateResult ?? new PluginInstallResult(
+                    success: true,
+                    pluginName: $pluginName,
+                    version: '2.0.0',
+                    source: 'github:acme/mail-plugin',
+                );
+            }
+
+            public function resolve(string $source): DependencyResolution
+            {
+                return new DependencyResolution(resolvable: true);
+            }
+
+            public function remove(string $pluginName, bool $keepData = false): PluginRemoveResult
+            {
+                $this->removals[] = [$pluginName, $keepData];
+
+                return $this->removeResult ?? PluginRemoveResult::success($pluginName, dataKept: $keepData);
+            }
+        };
+    }
+}

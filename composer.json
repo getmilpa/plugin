@@ -12,6 +12,7 @@
   "require": {
     "php": ">=8.3",
     "milpa/core": "^0.6",
+    "milpa/command": "^0.2",
     "milpa/events": "^0.2",
     "milpa/resolver": "^0.5",
     "psr/log": "^3",
