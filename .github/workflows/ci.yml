@@ -24,7 +24,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: none
+          coverage: xdebug
 
       - name: Validate composer.json
         run: composer validate --strict
@@ -46,8 +46,12 @@ jobs:
       - name: PHPStan
         run: vendor/bin/phpstan analyse src --no-progress
 
-      - name: PHPUnit
-        run: vendor/bin/phpunit --testsuite Plugin
+      - name: PHPUnit + coverage floor
+        env:
+          XDEBUG_MODE: coverage
+        run: |
+          vendor/bin/phpunit --testsuite Plugin --coverage-clover=build/clover.xml
+          php tools/coverage-floor.php build/clover.xml 94
 
       - name: DocBlock coverage gate
         run: php tools/validate-docblocks.php

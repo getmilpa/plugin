@@ -16,19 +16,33 @@ declare(strict_types=1);
 namespace Milpa\Plugin;
 
 use Milpa\ValueObjects\SemanticVersion;
+use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestFactoryInterface;
 
 /**
  * Downloads plugin releases from GitHub.
  *
  * Uses GitHub REST API v3 (no auth required for public repos).
  * Optionally uses GITHUB_TOKEN env var for private repos or rate limits.
+ *
+ * Transport is a seam. With no PSR-18 client injected it goes over
+ * `file_get_contents()` with a stream context, exactly as it always has —
+ * nothing a host has to change. Injecting one is what makes everything above
+ * the transport reachable from a test: version listing, constraint resolution,
+ * the zipball download and its fallback tag were all unreachable while the
+ * only way in was the network. The same seam `milpa/ai-gateway` and
+ * `milpa/mcp-client` already carry.
  */
 final class GitHubDownloader
 {
     private ?string $token;
 
-    public function __construct(?string $token = null)
-    {
+    public function __construct(
+        ?string $token = null,
+        private readonly ?ClientInterface $httpClient = null,
+        private readonly ?RequestFactoryInterface $requestFactory = null,
+    ) {
         $this->token = $token ?? ($_ENV['GITHUB_TOKEN'] ?? null);
     }
 
@@ -276,32 +290,13 @@ final class GitHubDownloader
             'X-GitHub-Api-Version: 2022-11-28',
         ];
 
-        if ($this->token !== null && $this->token !== '') {
-            $headers[] = "Authorization: Bearer {$this->token}";
-        }
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => implode("\r\n", $headers),
-                'timeout' => 30,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $http_response_header = [];
-        $response = @file_get_contents($url, false, $context);
-        if ($response === false) {
+        $result = $this->fetch($url, $headers, 30);
+        if ($result === null || $result['status'] >= 400) {
             return null;
         }
 
-        // Check for HTTP errors via response headers
-        $statusCode = $this->extractStatusCode($http_response_header);
-        if ($statusCode >= 400) {
-            return null;
-        }
+        $data = json_decode($result['body'], true);
 
-        $data = json_decode($response, true);
         return is_array($data) ? $data : null;
     }
 
@@ -310,24 +305,95 @@ final class GitHubDownloader
      */
     private function httpGet(string $url): ?string
     {
-        $headers = [
-            'User-Agent: Milpa-Framework/2.0',
-        ];
+        $result = $this->fetch($url, ['User-Agent: Milpa-Framework/2.0'], 120, followRedirects: true);
+        if ($result === null || $result['status'] >= 400) {
+            return null;
+        }
 
+        return $result['body'];
+    }
+
+    /**
+     * One GET, over whichever transport this instance was built with.
+     *
+     * @param list<string> $headers In `Name: value` form, the way the stream context takes them.
+     *
+     * @return array{status: int, body: string}|null Null when the request could not be made at all,
+     *                                               as opposed to answered with an error status.
+     */
+    private function fetch(string $url, array $headers, int $timeoutSeconds, bool $followRedirects = false): ?array
+    {
+        $headers = $this->withAuthorization($headers);
+
+        if ($this->httpClient !== null && $this->requestFactory !== null) {
+            return $this->fetchViaClient($url, $headers);
+        }
+
+        return $this->fetchViaStream($url, $headers, $timeoutSeconds, $followRedirects);
+    }
+
+    /**
+     * @param list<string> $headers
+     *
+     * @return list<string>
+     */
+    private function withAuthorization(array $headers): array
+    {
         if ($this->token !== null && $this->token !== '') {
             $headers[] = "Authorization: Bearer {$this->token}";
         }
 
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => implode("\r\n", $headers),
-                'timeout' => 120,
-                'follow_location' => true,
-                'max_redirects' => 5,
-                'ignore_errors' => true,
-            ],
-        ]);
+        return $headers;
+    }
+
+    /**
+     * @param list<string> $headers
+     *
+     * @return array{status: int, body: string}|null
+     */
+    private function fetchViaClient(string $url, array $headers): ?array
+    {
+        if ($this->requestFactory === null || $this->httpClient === null) {
+            return null;
+        }
+
+        $request = $this->requestFactory->createRequest('GET', $url);
+        foreach ($headers as $header) {
+            [$name, $value] = array_pad(explode(':', $header, 2), 2, '');
+            $request = $request->withHeader(trim($name), trim($value));
+        }
+
+        try {
+            $response = $this->httpClient->sendRequest($request);
+        } catch (ClientExceptionInterface) {
+            // A request that could not be made at all — the same answer the
+            // stream transport gives when file_get_contents() returns false.
+            return null;
+        }
+
+        return ['status' => $response->getStatusCode(), 'body' => (string) $response->getBody()];
+    }
+
+    /**
+     * @param list<string> $headers
+     *
+     * @return array{status: int, body: string}|null
+     */
+    private function fetchViaStream(string $url, array $headers, int $timeoutSeconds, bool $followRedirects): ?array
+    {
+        $http = [
+            'method' => 'GET',
+            'header' => implode("\r\n", $headers),
+            'timeout' => $timeoutSeconds,
+            'ignore_errors' => true,
+        ];
+
+        if ($followRedirects) {
+            $http['follow_location'] = true;
+            $http['max_redirects'] = 5;
+        }
+
+        $context = stream_context_create(['http' => $http]);
 
         $http_response_header = [];
         $response = @file_get_contents($url, false, $context);
@@ -335,12 +401,7 @@ final class GitHubDownloader
             return null;
         }
 
-        $statusCode = $this->extractStatusCode($http_response_header);
-        if ($statusCode >= 400) {
-            return null;
-        }
-
-        return $response;
+        return ['status' => $this->extractStatusCode($http_response_header), 'body' => $response];
     }
 
     /**
