@@ -14,17 +14,20 @@
     "milpa/core": "^0.6",
     "milpa/command": "^0.2",
     "milpa/events": "^0.2",
-    "milpa/resolver": "^0.5",
+    "milpa/resolver": "^0.5.2",
     "psr/log": "^3",
     "psr/http-client": "^1.0",
     "psr/http-factory": "^1.0"
   },
   "require-dev": {
-    "phpunit/phpunit": "^11.5",
-    "phpstan/phpstan": "^2.1",
-    "phpstan/phpdoc-parser": "^2.3",
     "friendsofphp/php-cs-fixer": "^3.65",
-    "nyholm/psr7": "^1.8"
+    "nyholm/psr7": "^1.8",
+    "phpstan/phpdoc-parser": "^2.3",
+    "phpstan/phpstan": "^2.1",
+    "phpunit/phpunit": "^11.5"
+  },
+  "suggest": {
+    "phpunit/phpunit": "Required to extend the shipped registry contract test base (Milpa\\Plugin\\Testing) \u2014 production code never loads it"
   },
   "autoload": {
     "psr-4": {

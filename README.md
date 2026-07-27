@@ -188,8 +188,9 @@ decides whether an existing `milpa.json` may be replaced; the generator only ret
 
 - PHP **≥ 8.3**
 - [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.6**
-- [`milpa/events`](https://packagist.org/packages/milpa/events) **^0.2**
-- [`milpa/resolver`](https://packagist.org/packages/milpa/resolver) **^0.5**
+- [`milpa/command`](https://packagist.org/packages/milpa/command) **^0.2** — the `Operation` atom the `plugins.*` operations are defined as
+- [`milpa/events`](https://packagist.org/packages/milpa/events) **^0.2** — `PluginsManager` dispatches the kernel's boot events
+- [`milpa/resolver`](https://packagist.org/packages/milpa/resolver) **^0.5.2** — the capability graph. The floor is `.2` and not `^0.5`: `PluginsManager` hands every `#[PluginMetadata]` to the resolver's `AttributeLoader`, whose rich-record ingestion first ships in 0.5.2; against ≤ 0.5.1 a rich record TypeErrors inside the resolver
 - [`psr/log`](https://packagist.org/packages/psr/log) **^3**
 - [`psr/http-client`](https://packagist.org/packages/psr/http-client) **^1.0** and [`psr/http-factory`](https://packagist.org/packages/psr/http-factory) **^1.0** — the optional transport seam for `GitHubDownloader`
 
