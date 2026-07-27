@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0](https://github.com/getmilpa/plugin/compare/v0.2.0...v0.3.0) (2026-07-27)
+
+
+### Features
+
+* activación declarada en código, conmutada en runtime ([cda9605](https://github.com/getmilpa/plugin/commit/cda9605fd0b54bb44cf8c2a643ba606ffa3b7e66))
+* costura PSR-18 en GitHubDownloader (78.5% -&gt; 94.3% de cobertura) ([53b0fcd](https://github.com/getmilpa/plugin/commit/53b0fcdf6e76bf7d07c4d7c52f1abf56a76c8b8c))
+* gestión de plugins como operaciones — una definición, siete surfaces ([d9a83df](https://github.com/getmilpa/plugin/commit/d9a83df15a9aedcb3c71e4bbbb10546b08cc3a8a))
+* publicar el sistema de plugins completo — el paquete tenía 5 de 24 clases ([39887ce](https://github.com/getmilpa/plugin/commit/39887cef272e8f5e2c6e4dce43e11615f1269caa))
+
 ## [0.2.0](https://github.com/getmilpa/plugin/compare/v0.1.2...v0.2.0) (2026-07-13)
 
 
