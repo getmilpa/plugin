@@ -1,6 +1,6 @@
 {
   "name": "milpa/plugin",
-  "description": "GitHub-native plugin distribution for the Milpa PHP framework: source parsing, semver-constrained release resolution, zipball download, milpa.json manifest reading/validation, dependency resolution, milpa.lock management, and contract-based load ordering.",
+  "description": "The plugin system of the Milpa PHP framework: the PluginsManager runtime that boots and orders plugins, the registry port with its file and in-memory adapters, PluginBase, the installer over GitHub-native distribution (source parsing, semver-constrained release resolution, zipball download), milpa.json manifest reading/validation, dependency resolution, milpa.lock management, and the plugin migration runner.",
   "type": "library",
   "license": "Apache-2.0",
   "authors": [
@@ -12,6 +12,8 @@
   "require": {
     "php": ">=8.3",
     "milpa/core": "^0.6",
+    "milpa/events": "^0.2",
+    "milpa/resolver": "^0.5",
     "psr/log": "^3",
     "psr/http-client": "^1.0",
     "psr/http-factory": "^1.0"

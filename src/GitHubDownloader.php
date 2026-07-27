@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace Milpa\Plugin;
 
+use Milpa\Plugin\Contracts\PluginDownloaderInterface;
 use Milpa\ValueObjects\SemanticVersion;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -33,8 +34,13 @@ use Psr\Http\Message\RequestFactoryInterface;
  * the zipball download and its fallback tag were all unreachable while the
  * only way in was the network. The same seam `milpa/ai-gateway` and
  * `milpa/mcp-client` already carry.
+ *
+ * GitHub is one source of plugins, not the only conceivable one: what the
+ * installer actually depends on is {@see PluginDownloaderInterface}. The two
+ * public methods beyond that port — {@see self::listVersions()} and
+ * {@see self::getRepoInfo()} — are GitHub facts, and stay off it.
  */
-final class GitHubDownloader
+final class GitHubDownloader implements PluginDownloaderInterface
 {
     private ?string $token;
 

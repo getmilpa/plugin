@@ -9,7 +9,7 @@
 
 # Milpa Plugin
 
-> **GitHub-native plugin distribution** for the Milpa PHP framework — semver-aware version resolution, manifest validation, dependency ordering, and a lock file, with no registry server required.
+> **The plugin system** of the Milpa PHP framework — the runtime that boots and orders plugins, the registry port that decides which ones are on, and GitHub-native distribution with no registry server required.
 
 [![CI](https://github.com/getmilpa/plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/getmilpa/plugin/actions/workflows/ci.yml)
 [![Packagist](https://img.shields.io/packagist/v/milpa/plugin.svg)](https://packagist.org/packages/milpa/plugin)
@@ -17,12 +17,22 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-API%20reference-blue.svg)](https://getmilpa.github.io/plugin/)
 
-`milpa/plugin` is the distinct-value core behind a Milpa host's `plugin require owner/repo`
-command: resolve a semver constraint against GitHub releases/tags, download and extract the
-matching zipball, read and validate the plugin's `milpa.json` manifest, resolve its plugin +
-Composer dependencies, order every installed plugin by the contracts it provides/requires, and
-record the result in a `milpa.lock` file. **No registry server, no Packagist-style index** —
-GitHub itself is the source of truth.
+`milpa/plugin` is everything a host needs to have plugins at all, in two halves that a host can
+adopt separately.
+
+**The runtime.** `PluginsManager` scans, orders, and boots plugins, resolving their capability
+graph and caching the result; `PluginBase` is the class a plugin extends; and
+`PluginRegistryInterface` is the port that answers *which plugins are on* — with a JSON-file
+adapter and an in-memory one included, and a contract test base so a host can write its own
+(a database-backed one, say) and prove it behaves.
+
+**Distribution.** `PluginInstaller` runs install / update / remove over a
+`PluginDownloaderInterface` — implemented here by `GitHubDownloader`: resolve a semver
+constraint against GitHub releases/tags, download and extract the matching zipball, read and
+validate the plugin's `milpa.json` manifest, resolve its plugin + Composer dependencies, run its
+migrations, and record the result in a `milpa.lock` file. **No registry server, no
+Packagist-style index** — GitHub itself is the source of truth, and any other source of plugins
+is one implementation of the downloader port away.
 
 ## Install
 
@@ -105,12 +115,22 @@ decides whether an existing `milpa.json` may be replaced; the generator only ret
 | `ContractResolver` | Validates that every plugin's `requires` is satisfied by some other plugin's `provides` (fail-fast, throws `RuntimeException`; `suggests` only logs), and topologically sorts plugins into a load order where providers come before consumers. |
 | `DependencyResolver` | Resolves a plugin's contract requirements, plugin-to-plugin dependencies (with version constraint checks), and Composer dependencies (read from `composer.lock`) into a single `Milpa\DTO\DependencyResolution` — `resolvable`, `conflicts`, `missingPlugins`, `composerPackages`, `satisfiedContracts`. |
 | `LockFileManager` | Generates, reads, and verifies `milpa.lock` — installed plugin names, versions, sources, install timestamps, and a SHA-256 content hash for integrity checks. |
+| `Runtime\PluginsManager` | The boot runtime: scans a plugins path for `#[PluginMetadata]`, resolves the capability graph through `milpa/resolver`, caches the resulting load order and revalidates it against the sources, boots each plugin in order, and auto-registers the tools and event subscriptions a plugin declares. |
+| `PluginBase` | The base class a plugin extends: container access, service registration, and entity discovery against the `PluginSchemaManagerInterface` port. |
+| `PluginInstaller` | The install / update / remove pipeline. Every collaborator is a port — the source of the code, the activation store, the migration runner, and composer — so an invalid or failing composer package aborts the whole operation before any file or registry state changes. |
+| `PluginMigrationRunner` | Runs a plugin's versioned migrations up and down against a `MigrationLedgerInterface`. |
+| `PluginScaffolder` | Generates the skeleton of a new plugin. |
+| `Contracts\*` | The ports: `PluginRegistryInterface` (which plugins are installed and enabled), `PluginDownloaderInterface` (where their code comes from), `ComposerRunnerInterface`, `MigrationLedgerInterface`, `PluginSchemaManagerInterface`. |
+| `Registry\FilePluginRegistry` / `Registry\InMemoryPluginRegistry` | The two adapters that ship: a JSON file, and memory. `Testing\PluginRegistryContractTestBase` is the suite any third adapter must pass. |
 
 ## Requirements
 
 - PHP **≥ 8.3**
 - [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.6**
+- [`milpa/events`](https://packagist.org/packages/milpa/events) **^0.2**
+- [`milpa/resolver`](https://packagist.org/packages/milpa/resolver) **^0.5**
 - [`psr/log`](https://packagist.org/packages/psr/log) **^3**
+- [`psr/http-client`](https://packagist.org/packages/psr/http-client) **^1.0** and [`psr/http-factory`](https://packagist.org/packages/psr/http-factory) **^1.0** — the optional transport seam for `GitHubDownloader`
 
 ## Documentation
 
