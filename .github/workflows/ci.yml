@@ -55,3 +55,6 @@ jobs:
 
       - name: DocBlock coverage gate
         run: php tools/validate-docblocks.php
+
+      - name: Attribution gate
+        run: php tools/verify-attribution.php
