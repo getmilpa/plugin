@@ -1,6 +1,15 @@
 {
   "name": "milpa/plugin",
   "description": "The plugin system of the Milpa PHP framework: the PluginsManager runtime that boots and orders plugins, the registry port with its file and in-memory adapters, PluginBase, the installer over GitHub-native distribution (source parsing, semver-constrained release resolution, zipball download), milpa.json manifest reading/validation, dependency resolution, milpa.lock management, and the plugin migration runner.",
+  "keywords": [
+    "php",
+    "milpa",
+    "framework",
+    "plugins",
+    "plugin-system",
+    "manifest",
+    "extensibility"
+  ],
   "type": "library",
   "license": "Apache-2.0",
   "authors": [
@@ -12,7 +21,7 @@
   "require": {
     "php": ">=8.3",
     "milpa/core": "^0.6",
-    "milpa/command": "^0.2",
+    "milpa/command": "^0.3",
     "milpa/events": "^0.2",
     "milpa/resolver": "^0.5.2",
     "psr/log": "^3",
