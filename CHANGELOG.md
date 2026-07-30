@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/getmilpa/plugin/compare/v0.3.0...v0.4.0) (2026-07-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* the constraint on `milpa/command` moves from ^0.2 to ^0.3, so this package can no longer be installed alongside command 0.2.
+
+### Features
+
+* require milpa/command ^0.3 ([bf18c4e](https://github.com/getmilpa/plugin/commit/bf18c4efa450f19c50012de403f7252448004225))
+
 ## [0.3.0](https://github.com/getmilpa/plugin/compare/v0.2.0...v0.3.0) (2026-07-27)
 
 
