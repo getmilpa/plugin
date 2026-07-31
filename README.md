@@ -92,13 +92,17 @@ $lock->verify(); // true — the SHA-256 content hash matches
 Listing, enabling, installing and removing a plugin are **operations**
 (`milpa/command`), not CLI commands — defined once, projected by the host to
 whichever surfaces it runs. Add `PluginManagementPlugin` to the host's plugin
-list and the same seven operations appear in the terminal, over HTTP, and to an
+list and the same twelve operations appear in the terminal, over HTTP, and to an
 MCP client, without a controller per surface:
 
 | Operation | Mutating | Confirms | Scope |
 |-----------|----------|----------|-------|
 | `plugins.list` / `plugins.show` | no | no | `plugins:read` |
+| `plugins.deps` / `plugins.simulate` | no | no | `plugins:read` |
+| `plugins.verify` | no | no | `plugins:read` |
+| `plugins.outdated` | no | no | `plugins:read` |
 | `plugins.enable` / `plugins.disable` | yes | no | `plugins:write` |
+| `plugins.lock` | yes | no | `plugins:write` |
 | `plugins.install` / `plugins.update` | yes | **yes** | `plugins:install` |
 | `plugins.remove` | yes | **yes** | `plugins:write` |
 
@@ -111,11 +115,28 @@ return [
 ];
 ```
 
-What a host gets depends on what it wired. With a `PluginRegistryInterface` in
-the container it gets the four read-and-toggle operations; wire a
-`PluginInstallerInterface` too and the three that reach out for code appear as
-well — a host without an installer never renders an install button that fails
-when pressed.
+What a host gets depends on what it wired, and nothing is faked:
+
+- a `PluginRegistryInterface` gets you the four read-and-toggle operations plus
+  `deps` and `simulate` — those two read the graph from what the host declared
+  and what the store says boots, which is all they need;
+- an `AppRoot` adds `verify` and `lock`, the two that touch disk. A package
+  cannot guess where the app that installed it lives (computed from its own
+  file, that path points inside `vendor/`), so it asks — and a host that does
+  not answer simply does not get those two;
+- a `PluginInstallerInterface` adds `outdated` and the three that reach out for
+  code. A host without an installer never renders an install button that fails
+  when pressed.
+
+```php
+use Milpa\Plugin\Contracts\AppRoot;
+
+$container->registerService(AppRoot::class, new AppRoot(__DIR__ . '/..'));
+```
+
+`deps` and `simulate` are what an agent needs before touching anything: whether
+the graph resolves and in what order plugins would boot, and what enabling one
+*would* do — named provider by provider — without enabling it.
 
 ### Declared in code, switched at runtime
 

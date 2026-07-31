@@ -22,6 +22,7 @@ use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Interfaces\Plugin\PluginsManagerInterface;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
+use Milpa\Plugin\Contracts\AppRoot;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 use Milpa\Plugin\Activation\DeclaredPlugins;
 use Milpa\Plugin\PluginBase;
@@ -123,11 +124,17 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
         // sigue pudiendo apagar; lo que pierde es el aviso, no la capacidad.
         $manager = $this->tryGetService(PluginsManagerInterface::class);
 
+        // La raíz de la app la dice el host o no la dice nadie: contarla desde este archivo apuntaría
+        // adentro de `vendor/` en cuanto el paquete se instale de verdad. Sin ella, las dos que tocan
+        // disco no se ofrecen.
+        $root = $this->tryGetService(AppRoot::class);
+
         return (new PluginOperations(
             $registry,
             $installer instanceof PluginInstallerInterface ? $installer : null,
             $declared instanceof DeclaredPlugins ? $declared->classes : [],
             $manager instanceof ActivationSafetyInterface ? $manager : null,
+            $root instanceof AppRoot ? $root->path : null,
         ))->operations();
     }
 }

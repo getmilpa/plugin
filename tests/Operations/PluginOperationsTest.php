@@ -76,6 +76,21 @@ final class PluginOperationsTest extends TestCase
     }
 
     /**
+     * Las mismas, pero con una raíz de app — para ver aparecer las dos que tocan disco.
+     *
+     * @return array<string, \Milpa\Command\Operation>
+     */
+    private function operationsWithRoot(string $root): array
+    {
+        $byName = [];
+        foreach ((new PluginOperations($this->registry, null, [], null, $root))->operations() as $operation) {
+            $byName[$operation->name] = $operation;
+        }
+
+        return $byName;
+    }
+
+    /**
      * @param array<string, mixed> $input
      * @param list<class-string>   $declared
      */
@@ -92,8 +107,10 @@ final class PluginOperationsTest extends TestCase
 
     public function testAHostWithOnlyARegistryGetsTheReadAndToggleOperations(): void
     {
+        // `deps` and `simulate` come with the registry because that is all they need: the graph is
+        // read from what the host declared plus what the store says boots.
         self::assertSame(
-            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable'],
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.deps', 'plugins.simulate'],
             array_keys($this->operations()),
         );
     }
@@ -103,9 +120,31 @@ final class PluginOperationsTest extends TestCase
         // A host that never wired an installer must not be handed an install
         // button: the panel would render it and it would fail when pressed.
         self::assertSame(
-            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.install', 'plugins.update', 'plugins.remove'],
+            [
+                'plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable',
+                'plugins.deps', 'plugins.simulate',
+                'plugins.outdated', 'plugins.install', 'plugins.update', 'plugins.remove',
+            ],
             array_keys($this->operations($this->installer())),
         );
+    }
+
+    /**
+     * Sin raíz de la app NO aparecen las dos que tocan disco.
+     *
+     * Un paquete no adivina dónde vive quien lo instala: `verify` leería un `milpa.json` de una ruta
+     * inventada y `lock` escribiría el archivo de bloqueo en otra. La respuesta honesta es no
+     * ofrecerlas — la misma postura que ya se toma con el instalador ausente.
+     */
+    public function testTheTwoThatTouchDiskAppearOnlyWithARoot(): void
+    {
+        $sinRaiz = array_keys($this->operations());
+        self::assertNotContains('plugins.verify', $sinRaiz);
+        self::assertNotContains('plugins.lock', $sinRaiz);
+
+        $conRaiz = array_keys($this->operationsWithRoot(sys_get_temp_dir()));
+        self::assertContains('plugins.verify', $conRaiz);
+        self::assertContains('plugins.lock', $conRaiz);
     }
 
     public function testReadingIsNotMutatingAndWritingIs(): void

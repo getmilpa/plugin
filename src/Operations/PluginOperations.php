@@ -59,13 +59,26 @@ final readonly class PluginOperations
      *                                                 plugins while running two.
      * @param ActivationSafetyInterface|null $safety   quien contesta si apagar dejaría el host sin
      *                                                 arrancar; `null` deja el comportamiento previo
+     * @param string|null                    $root     la raíz de la app. Sin ella, las dos
+     *                                                 operaciones que tocan disco —verificar un
+     *                                                 manifiesto, regenerar `milpa.lock`— no se
+     *                                                 ofrecen: un paquete no adivina dónde vive quien
+     *                                                 lo instala, y una superficie no debería pintar
+     *                                                 un botón que truena al apretarlo
      */
     public function __construct(
         private PluginRegistryInterface $registry,
         private ?PluginInstallerInterface $installer = null,
         private array $declared = [],
         private ?ActivationSafetyInterface $safety = null,
+        private ?string $root = null,
     ) {
+    }
+
+    /** Lo que mira sin tocar: el grafo, los manifiestos, las versiones publicadas. */
+    private function inspection(): PluginInspection
+    {
+        return new PluginInspection($this->registry, $this->declared, $this->root, $this->installer);
     }
 
     /**
@@ -123,9 +136,71 @@ final readonly class PluginOperations
             ),
         ];
 
+        // Las que MIRAN. Van después de las cuatro básicas y antes de las que salen a la red, que es
+        // el orden en que una superficie debería presentarlas: ver, cambiar, y hasta el final traer
+        // código de afuera.
+        $operations[] = new Operation(
+            name: 'plugins.deps',
+            description: 'Whether the active plugin graph resolves, and in which order they would boot.',
+            handler: fn (array $input): array => $this->inspection()->deps($input),
+            inputSchema: ['type' => 'object', 'properties' => []],
+            scopes: ['plugins:read'],
+            path: '/plugins/deps',
+        );
+
+        $operations[] = new Operation(
+            name: 'plugins.simulate',
+            description: 'What turning a plugin on would do, without turning it on.',
+            handler: fn (array $input): array => $this->inspection()->simulate($input),
+            inputSchema: [
+                'type' => 'object',
+                'properties' => ['plugin' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".']],
+                'required' => ['plugin'],
+            ],
+            scopes: ['plugins:read'],
+            path: '/plugins/simulate',
+        );
+
+        if ($this->root !== null) {
+            $operations[] = new Operation(
+                name: 'plugins.verify',
+                description: "Whether a plugin's milpa.json exists, validates, and matches its attribute.",
+                handler: fn (array $input): array => $this->inspection()->verify($input),
+                inputSchema: [
+                    'type' => 'object',
+                    'properties' => ['plugin' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".']],
+                    'required' => ['plugin'],
+                ],
+                scopes: ['plugins:read'],
+                path: '/plugins/verify',
+            );
+
+            $operations[] = new Operation(
+                name: 'plugins.lock',
+                description: 'Regenerate milpa.lock from what the registry says is installed.',
+                handler: fn (array $input): array => $this->inspection()->lock($input),
+                inputSchema: ['type' => 'object', 'properties' => []],
+                // Escribe un archivo, y lo dice. Sin firma: reconstruye de forma determinista desde el
+                // registry, el resultado va a git, y quien lo corre suele estar arreglando justo esa
+                // desincronización.
+                mutating: true,
+                scopes: ['plugins:write'],
+                path: '/plugins/lock',
+            );
+        }
+
         if ($this->installer === null) {
             return $operations;
         }
+
+        $operations[] = new Operation(
+            name: 'plugins.outdated',
+            description: 'Which remotely-installed plugins have a newer version available.',
+            handler: fn (array $input): array => $this->inspection()->outdated($input),
+            inputSchema: ['type' => 'object', 'properties' => []],
+            scopes: ['plugins:read'],
+            path: '/plugins/outdated',
+        );
 
         $operations[] = new Operation(
             name: 'plugins.install',

@@ -110,7 +110,7 @@ final class PluginManagementPluginTest extends TestCase
         ]));
 
         self::assertSame(
-            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable'],
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.deps', 'plugins.simulate'],
             array_map(static fn ($operation): string => $operation->name, $plugin->operations()),
         );
     }

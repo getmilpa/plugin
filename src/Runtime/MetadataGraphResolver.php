@@ -40,7 +40,14 @@ final class MetadataGraphResolver
      *
      * @return list<array<string, mixed>> The same records, resequenced to the resolver's load order.
      *
-     * @throws \RuntimeException When the graph is blocked (message = learnable line).
+     * @throws \RuntimeException        When the graph is blocked (message = learnable line).
+     * @throws \InvalidArgumentException When a record is malformed and the resolver refuses to ingest
+     *                                   it — e.g. a capability record with no contract version. It was
+     *                                   not declared here until a caller caught it in the wild: the
+     *                                   inspection operations were catching only `RuntimeException`,
+     *                                   so a malformed manifest escaped as a trace instead of an
+     *                                   answer. An undeclared throw is a contract that lies by
+     *                                   omission.
      */
     public function order(array $metadataArrays): array
     {
