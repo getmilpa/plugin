@@ -16,8 +16,7 @@ declare(strict_types=1);
 namespace Milpa\Plugin\Tests\Fixtures\MigFixtureBroken\Migrations;
 
 /**
- * Test fixture migration shaped like the TeamX legacy migrations (e.g. the
- * host's TeamXPlugin\Migrations\Version_AddReplyToIndex): matches the
+ * Test fixture migration shaped like the legacy migrations a host may carry: matches the
  * Version_*.php glob but does NOT implement PluginMigrationInterface. The
  * legacy runner discarded this in silence (the invisible-migration bug);
  * the v2 runner refuses it loudly instead. Lives in its own directory so it

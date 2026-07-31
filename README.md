@@ -148,6 +148,32 @@ else's code declare `requiresConfirmation`, so whatever surface is driving gets
 to put that in front of a person. And a freshly installed plugin arrives
 **disabled**: installing is not consenting to run it.
 
+### Disabling cannot lock you out
+
+Turning a plugin off is reversible in theory and sometimes not in practice. If
+the host profile requires a capability only that plugin provides, the resolver
+blocks the next boot — correctly, an open graph should not boot — and from then
+on `plugins.enable` cannot run either, because it needs the host to boot. Whoever
+disabled it is left without the tool they would enable it with. It takes a hand
+edit of the store to get back.
+
+So the question is asked first. Hand `PluginOperations` an
+`ActivationSafetyInterface` and `plugins.disable` refuses before it writes,
+returning the reason — which capability would be left without a provider, so the
+answer names what to install instead of just saying no:
+
+```php
+$manager = new PluginsManager($container, $registry, $config); // implements ActivationSafetyInterface
+new PluginOperations($registry, $installer, $declared, $manager);
+```
+
+`PluginsManager` answers it by resolving the **same graph the boot resolves**,
+with that plugin left out — not an approximation of it. The collaborator is
+optional because only the host knows which profile it has to satisfy: a package
+that resolved on its own would have to guess one, and an invented profile would
+block disables that work today. Wire nothing and disabling behaves as it always
+did. Enabling never consults it — adding a provider cannot take one away.
+
 ## Generating a canonical manifest
 
 `PluginManifest::generateFromMetadata()` turns a plugin's `#[PluginMetadata]` into `milpa.json`
@@ -188,7 +214,7 @@ decides whether an existing `milpa.json` may be replaced; the generator only ret
 
 - PHP **≥ 8.3**
 - [`milpa/core`](https://packagist.org/packages/milpa/core) **^0.6**
-- [`milpa/command`](https://packagist.org/packages/milpa/command) **^0.2** — the `Operation` atom the `plugins.*` operations are defined as
+- [`milpa/command`](https://packagist.org/packages/milpa/command) **^0.3** — the `Operation` atom the `plugins.*` operations are defined as
 - [`milpa/events`](https://packagist.org/packages/milpa/events) **^0.2** — `PluginsManager` dispatches the kernel's boot events
 - [`milpa/resolver`](https://packagist.org/packages/milpa/resolver) **^0.5.2** — the capability graph. The floor is `.2` and not `^0.5`: `PluginsManager` hands every `#[PluginMetadata]` to the resolver's `AttributeLoader`, whose rich-record ingestion first ships in 0.5.2; against ≤ 0.5.1 a rich record TypeErrors inside the resolver
 - [`psr/log`](https://packagist.org/packages/psr/log) **^3**

@@ -19,6 +19,7 @@ use Milpa\Attributes\PluginMetadata;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 
 /**
@@ -45,15 +46,25 @@ use Milpa\Plugin\Contracts\PluginRegistryInterface;
 final readonly class PluginOperations
 {
     /**
-     * @param list<class-string> $declared The plugin classes the host declares in code. They have
-     *                                     no registry record until somebody switches one off, so
-     *                                     without them a freshly-installed app reports that it has
-     *                                     no plugins while running two.
+     * La comprobación de seguridad al apagar es OPCIONAL y por contrato.
+     *
+     * Sólo el host sabe qué perfil de arquitectura tiene que satisfacer, así que este paquete no
+     * puede resolverlo por su cuenta sin adivinarlo. Si nadie la cablea, apagar se comporta como
+     * siempre: no saber no autoriza a inventar, ni a negar.
+     *
+     * @param list<class-string>             $declared The plugin classes the host declares in code.
+     *                                                 They have no registry record until somebody
+     *                                                 switches one off, so without them a
+     *                                                 freshly-installed app reports that it has no
+     *                                                 plugins while running two.
+     * @param ActivationSafetyInterface|null $safety   quien contesta si apagar dejaría el host sin
+     *                                                 arrancar; `null` deja el comportamiento previo
      */
     public function __construct(
         private PluginRegistryInterface $registry,
         private ?PluginInstallerInterface $installer = null,
         private array $declared = [],
+        private ?ActivationSafetyInterface $safety = null,
     ) {
     }
 
@@ -291,6 +302,25 @@ final readonly class PluginOperations
     {
         $name = $this->name($input);
         $record = $this->mustFind($name);
+
+        // Apagar puede ser irreversible EN LA PRÁCTICA: si el perfil del host requiere una capacidad
+        // que sólo este plugin provee, el resolver bloquea el siguiente arranque —y con razón, un
+        // grafo abierto no debe arrancar— pero a partir de ahí `plugins.enable` tampoco corre, porque
+        // necesita que el host arranque. Quien apagó se queda sin la herramienta con que encendería.
+        //
+        // Pasó de verdad: hubo que reencender un plugin escribiendo directo en la base de datos del
+        // host. La negativa lleva el MOTIVO del resolver para que se sepa qué capacidad se quedaría
+        // sin proveedor, en vez de sólo que no se puede.
+        if (!$enabled && $this->safety !== null) {
+            $motivo = $this->safety->blockingReasonWithout($name);
+            if ($motivo !== null) {
+                throw new \RuntimeException(
+                    "Turning {$name} off would leave this host unable to boot: {$motivo} "
+                    . 'Install or enable a provider for that capability first, or remove the requirement '
+                    . "from the host profile. Nothing was changed.",
+                );
+            }
+        }
 
         if ($this->registry->find($name) === null) {
             // A declared plugin with no record yet: switching it is the first

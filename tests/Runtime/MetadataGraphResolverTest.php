@@ -111,7 +111,7 @@ final class MetadataGraphResolverTest extends TestCase
         return [
             'name' => $name,
             'version' => '1.0.0',
-            'author' => 'TeamX',
+            'author' => 'Acme',
             'site' => 'https://teamx.agency',
             'type' => 'Service',
             'provides' => $provides,

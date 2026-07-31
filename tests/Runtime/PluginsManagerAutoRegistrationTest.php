@@ -341,14 +341,14 @@ trait InertPluginLifecycle
 }
 
 /** A plugin that offers neither tools nor subscriptions. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'Plain', type: 'Service')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'Plain', type: 'Service')]
 final class PlainPlugin implements PluginInterface
 {
     use InertPluginLifecycle;
 }
 
 /** A Service-typed tool provider: loads everywhere. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'ServiceTool', type: 'Service')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'ServiceTool', type: 'Service')]
 final class ServiceToolPlugin implements PluginInterface, ToolProviderInterface
 {
     use InertPluginLifecycle;
@@ -368,7 +368,7 @@ final class ServiceToolPlugin implements PluginInterface, ToolProviderInterface
 }
 
 /** A CLI-typed tool provider: loads only in a CLI process. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'CliTool', type: 'CLI')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'CliTool', type: 'CLI')]
 final class CliToolPlugin implements PluginInterface, ToolProviderInterface
 {
     use InertPluginLifecycle;
@@ -388,7 +388,7 @@ final class CliToolPlugin implements PluginInterface, ToolProviderInterface
 }
 
 /** A tool provider whose registration blows up. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'ThrowingTool', type: 'Service')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'ThrowingTool', type: 'Service')]
 final class ThrowingToolPlugin implements PluginInterface, ToolProviderInterface
 {
     use InertPluginLifecycle;
@@ -408,7 +408,7 @@ final class ThrowingToolPlugin implements PluginInterface, ToolProviderInterface
 }
 
 /** A plugin with two subscriptions, one of them prioritised. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'Subscribing', type: 'Service')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'Subscribing', type: 'Service')]
 final class SubscribingPlugin implements PluginInterface, EventSubscriberInterface
 {
     use InertPluginLifecycle;
@@ -445,7 +445,7 @@ final class SubscribingPlugin implements PluginInterface, EventSubscriberInterfa
 }
 
 /** A plugin whose subscription names a method it does not have. */
-#[PluginMetadata(version: '1.0.0', author: 'TeamX', site: 'https://teamx.agency', name: 'BadSubscription', type: 'Service')]
+#[PluginMetadata(version: '1.0.0', author: 'Acme', site: 'https://teamx.agency', name: 'BadSubscription', type: 'Service')]
 final class BadSubscriptionPlugin implements PluginInterface, EventSubscriberInterface
 {
     use InertPluginLifecycle;

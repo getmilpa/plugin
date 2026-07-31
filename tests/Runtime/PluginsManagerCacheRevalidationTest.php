@@ -71,7 +71,7 @@ final class PluginsManagerCacheRevalidationTest extends TestCase
 
             #[PluginMetadata(
                 version: '1.0.0',
-                author: 'TeamX',
+                author: 'Acme',
                 site: 'https://teamx.agency',
                 name: 'CacheFixture',
                 type: 'Service'
@@ -233,7 +233,7 @@ final class PluginsManagerCacheRevalidationTest extends TestCase
     {
         return [
             'version' => '1.0.0',
-            'author' => 'TeamX',
+            'author' => 'Acme',
             'site' => 'https://teamx.agency',
             'name' => 'CacheFixture',
             'type' => 'Service',

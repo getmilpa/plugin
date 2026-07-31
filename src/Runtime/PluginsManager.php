@@ -26,6 +26,7 @@ use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Interfaces\Plugin\PluginsManagerInterface;
 use Milpa\Interfaces\Tooling\ToolRegistryInterface;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 use Milpa\Resolver\Engine\GraphResolver;
 use Milpa\Resolver\Ingest\AttributeLoader;
@@ -43,7 +44,7 @@ use Psr\Log\LoggerInterface;
  * set reads through {@see PluginRegistryInterface}, the tool registry is the
  * core contract, and the plugin list is instance state.
  */
-final class PluginsManager implements PluginsManagerInterface
+final class PluginsManager implements ActivationSafetyInterface, PluginsManagerInterface
 {
     private DIContainerInterface $container;
 
@@ -78,6 +79,58 @@ final class PluginsManager implements PluginsManagerInterface
     public function getPluginsMetadata(): array
     {
         return $this->plugins;
+    }
+
+    /**
+     * El motivo por el que apagar `$pluginName` dejaría el grafo bloqueado, o `null` si no lo haría.
+     *
+     * Resuelve el MISMO grafo que el arranque, con ese plugin fuera. No es una aproximación: usa el
+     * perfil del host y el resolver que van a decidir de verdad, así que una respuesta afirmativa
+     * aquí es la misma que se daría en el siguiente arranque.
+     *
+     * Sin perfil legible contesta `null`, o sea «adelante»: es exactamente lo que hace el resto de
+     * esta clase cuando no lo encuentra —{@see self::cachedGraphIsBootable()} lo dice con todas sus
+     * letras— porque inventar un perfil bloquearía apagados que hoy funcionan.
+     *
+     * Un plugin que no está entre los activos tampoco bloquea nada: apagar lo que ya está apagado no
+     * cambia el grafo.
+     */
+    public function blockingReasonWithout(string $pluginName): ?string
+    {
+        $hostProfile = $this->loadHostProfile();
+        if ($hostProfile === null) {
+            return null;
+        }
+
+        $restantes = array_values(array_filter(
+            $this->plugins,
+            static fn (array $p): bool => ($p['name'] ?? null) !== $pluginName,
+        ));
+
+        if (\count($restantes) === \count($this->plugins)) {
+            return null;
+        }
+
+        try {
+            $report = $this->resolveGraph($restantes, $hostProfile);
+        } catch (\Throwable $e) {
+            // No poder resolver NO es lo mismo que resolver mal, y aquí la diferencia importa: negar
+            // un apagado porque el instrumento falló dejaría a alguien sin poder apagar nada. Se
+            // avisa y se deja pasar, que es lo que esta clase ya hace con un grafo cacheado ilegible.
+            $this->logger->warning(
+                '[Plugins] No se pudo comprobar si apagar ' . $pluginName . ' bloquearía el arranque: '
+                . $e->getMessage() . '. Se permite el apagado.'
+            );
+
+            return null;
+        }
+
+        if ($report->status !== ResolutionStatus::Blocked) {
+            return null;
+        }
+
+        return $report->firstLearnableLine()
+            ?? 'el grafo de arquitectura quedaría bloqueado; el resolver no reportó un error legible.';
     }
 
     /**

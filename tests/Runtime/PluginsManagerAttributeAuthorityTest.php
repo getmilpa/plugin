@@ -324,7 +324,7 @@ final class PluginsManagerAttributeAuthorityTest extends TestCase
 
             #[PluginMetadata(
                 version: '{$attributeVersion}',
-                author: 'TeamX',
+                author: 'Acme',
                 site: 'https://teamx.agency',
                 name: '{$name}',
                 type: 'Service',

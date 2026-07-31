@@ -20,6 +20,8 @@ use Milpa\Command\CommandProvider;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
+use Milpa\Interfaces\Plugin\PluginsManagerInterface;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 use Milpa\Plugin\Activation\DeclaredPlugins;
 use Milpa\Plugin\PluginBase;
@@ -116,10 +118,16 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
         // which is exactly what such a host has.
         $declared = $this->tryGetService(DeclaredPlugins::class);
 
+        // La comprobación de seguridad al apagar la ofrece el gestor de plugins del host, que es
+        // quien conoce su perfil de arquitectura. Un host que no lo cablee —o que use otro gestor—
+        // sigue pudiendo apagar; lo que pierde es el aviso, no la capacidad.
+        $manager = $this->tryGetService(PluginsManagerInterface::class);
+
         return (new PluginOperations(
             $registry,
             $installer instanceof PluginInstallerInterface ? $installer : null,
             $declared instanceof DeclaredPlugins ? $declared->classes : [],
+            $manager instanceof ActivationSafetyInterface ? $manager : null,
         ))->operations();
     }
 }

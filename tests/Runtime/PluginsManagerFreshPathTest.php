@@ -300,7 +300,7 @@ final class PluginsManagerFreshPathTest extends TestCase
 
             #[PluginMetadata(
                 version: '1.0.0',
-                author: 'TeamX',
+                author: 'Acme',
                 site: 'https://teamx.agency',
                 name: '{$name}',
                 type: 'Service',

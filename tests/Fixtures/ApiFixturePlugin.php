@@ -24,7 +24,7 @@ use Milpa\Interfaces\Di\DIContainerInterface;
  */
 #[PluginMetadata(
     version: '1.0.0',
-    author: 'TeamX',
+    author: 'Acme',
     site: 'https://teamx.agency',
     name: 'ApiFixture',
     type: 'Service',
