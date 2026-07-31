@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/getmilpa/plugin/compare/v0.4.0...v0.5.0) (2026-07-31)
+
+
+### Features
+
+* disabling a plugin can no longer lock a host out of enabling it ([45b9603](https://github.com/getmilpa/plugin/commit/45b96030f41412267792a3551f0a614f6e299411))
+
 ## [0.4.0](https://github.com/getmilpa/plugin/compare/v0.3.0...v0.4.0) (2026-07-30)
 
 
