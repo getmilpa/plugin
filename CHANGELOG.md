@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/getmilpa/plugin/compare/v0.5.0...v0.6.0) (2026-07-31)
+
+
+### Features
+
+* the five operations that INSPECT plugins live here now ([7a27e4a](https://github.com/getmilpa/plugin/commit/7a27e4a82f803024be11f0e5653c8aba08d800da))
+
 ## [0.5.0](https://github.com/getmilpa/plugin/compare/v0.4.0...v0.5.0) (2026-07-31)
 
 
