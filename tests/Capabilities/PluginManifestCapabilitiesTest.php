@@ -53,7 +53,7 @@ final class PluginManifestCapabilitiesTest extends TestCase
         $this->assertCount(2, $caps);
         $this->assertInstanceOf(CapabilityProvision::class, $caps[0]);
         $this->assertSame('Vendor\\Pkg\\Interfaces\\FooInterface', $caps[0]->interface);
-        $this->assertSame('0.0.0', $caps[0]->contractVersion);
+        $this->assertNull($caps[0]->contractVersion, 'legacy = versión desconocida, no 0.0.0');
     }
 
     public function testProvidedCapabilitiesParsesRecordForm(): void

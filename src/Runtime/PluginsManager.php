@@ -97,10 +97,20 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
      */
     public function blockingReasonWithout(string $pluginName): ?string
     {
-        $hostProfile = $this->loadHostProfile();
-        if ($hostProfile === null) {
-            return null;
-        }
+        // Sin perfil de host se usa el PERMISIVO, no se abandona la comprobación.
+        //
+        // Devolver `null` aquí —que es lo que hacía— convertía la guarda en decorativa para toda app
+        // que no declare `milpa.json`, y la plantilla que `milpa/framework` genera no declara ninguno:
+        // o sea, para TODAS. Reproducido con dos proveedores de una capacidad, apagando uno y luego
+        // el otro: el segundo apagado pasó y la app dejó de arrancar — exactamente lo que el docblock
+        // de este método dice que existe para impedir, y que ya había pasado de verdad una vez.
+        //
+        // El perfil permisivo no es «sin comprobación»: no impone exigencias del host, pero SÍ exige
+        // que los `requires` de los plugins cierren, que es justo el caso. Y es lo que el camino de
+        // ARRANQUE de esta misma clase ya hacía —`loadHostProfile() ?? permissiveHostProfile()`— así
+        // que esto no inventa una política: quita una divergencia entre dos caminos que contestaban
+        // la misma pregunta de forma distinta.
+        $hostProfile = $this->loadHostProfile() ?? $this->permissiveHostProfile();
 
         $restantes = array_values(array_filter(
             $this->plugins,

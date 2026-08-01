@@ -21,6 +21,7 @@ use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
+use Milpa\Plugin\Contracts\StateBaselineInterface;
 
 /**
  * Managing plugins, expressed once as operations.
@@ -72,13 +73,24 @@ final readonly class PluginOperations
         private array $declared = [],
         private ?ActivationSafetyInterface $safety = null,
         private ?string $root = null,
+        // Con qué estado empezó quien lee. Sólo la usa el reporte de arquitectura, y viaja por aquí
+        // porque este es el único lugar donde el host arma las operaciones. Ver
+        // {@see StateBaselineInterface}.
+        private ?StateBaselineInterface $baseline = null,
     ) {
     }
 
     /** Lo que mira sin tocar: el grafo, los manifiestos, las versiones publicadas. */
     private function inspection(): PluginInspection
     {
-        return new PluginInspection($this->registry, $this->declared, $this->root, $this->installer);
+        return new PluginInspection(
+            $this->registry,
+            $this->declared,
+            $this->root,
+            $this->installer,
+            $this->safety,
+            baseline: $this->baseline,
+        );
     }
 
     /**
@@ -134,6 +146,26 @@ final readonly class PluginOperations
                 scopes: ['plugins:write'],
                 path: '/plugins/disable',
             ),
+            // La vía de RECUPERACIÓN, y es otra operación a propósito.
+            //
+            // Vive aparte y no como una bandera de `plugins.disable` porque una bandera se lee como
+            // comodidad y se pasa sin pensar; una operación distinta hay que ir a buscarla. Y no
+            // inventa una autoridad nueva: reusa la que ya existe —`requiresConfirmation`, que ninguna
+            // autonomía pre-aprueba— así que un agente en modo `auto` se detiene aquí igual.
+            //
+            // `surfaces: ['cli']` la deja FUERA del catálogo que ve el agente: recuperar un host es
+            // trabajo de quien tiene la terminal, no de quien corre dentro de él.
+            new Operation(
+                name: 'plugins.disable-unsafe',
+                description: 'Recovery only: turn a plugin off WITHOUT the safety evaluation. May leave this host unable to boot.',
+                handler: fn (array $input): array => $this->setEnabled($input, false, overridden: true),
+                inputSchema: $this->nameSchema(),
+                mutating: true,
+                requiresConfirmation: true,
+                scopes: ['plugins:write'],
+                surfaces: ['cli'],
+                path: '/plugins/disable-unsafe',
+            ),
         ];
 
         // Las que MIRAN. Van después de las cuatro básicas y antes de las que salen a la red, que es
@@ -146,6 +178,19 @@ final readonly class PluginOperations
             inputSchema: ['type' => 'object', 'properties' => []],
             scopes: ['plugins:read'],
             path: '/plugins/deps',
+        );
+
+        // El GRAFO como dato (P17.2). Aparte de `deps` porque contestan preguntas distintas: `deps`
+        // dice en qué orden arrancan —una pregunta de arranque— y esto dice quién provee qué, quién lo
+        // usa, qué quedó sin dueño y qué se rompe si apagas algo, que son las preguntas de quien
+        // OPERA el sistema. Antes había que leer plugin por plugin y cruzarlo a mano.
+        $operations[] = new Operation(
+            name: 'plugins.architecture',
+            description: 'The capability graph as data: who provides what, who needs it, what is unsatisfied, and what breaks if you turn a plugin off.',
+            handler: fn (array $input): array => $this->inspection()->architecture($input),
+            inputSchema: ['type' => 'object', 'properties' => []],
+            scopes: ['plugins:read'],
+            path: '/plugins/architecture',
         );
 
         $operations[] = new Operation(
@@ -373,10 +418,34 @@ final readonly class PluginOperations
      *
      * @return array{name: string, enabled: bool}
      */
-    private function setEnabled(array $input, bool $enabled): array
+    private function setEnabled(array $input, bool $enabled, bool $overridden = false): array
     {
         $name = $this->name($input);
         $record = $this->mustFind($name);
+
+        // SIN EVALUADOR NO SE APAGA. La ausencia de la infraestructura que demuestra que una mutación
+        // es segura NO amplía la autoridad de esa mutación: la quita.
+        //
+        // Antes esto se permitía «perdiendo el aviso, no la capacidad», y medido resultó ser al revés:
+        // un host sin gestor cableado —que es el que `milpa/framework` genera— podía apagar hasta
+        // dejar el grafo abierto, y a partir de ahí `plugins.enable` tampoco corre porque necesita que
+        // el host arranque. Se reprodujo con dos proveedores de una capacidad: apagar uno, apagar el
+        // otro, y la app dejó de arrancar.
+        //
+        // Y no es hipotético que alguien elija mal: midiendo otra cosa, un agente ante una pregunta de
+        // ANÁLISIS —«qué deja de funcionar si deshabilito X»— eligió apagar de verdad 3 de 8 veces,
+        // teniendo `plugins.simulate` a la mano y descrita como lo que contesta eso sin hacerlo. Una
+        // herramienta segura disponible no vuelve seguro al sistema mientras la destructiva siga
+        // aceptando la misma intención sin una autoridad mayor.
+        if (!$enabled && !$overridden && $this->safety === null) {
+            throw new \RuntimeException(
+                "MILPA_PLUGIN_SAFETY_UNAVAILABLE: no se puede deshabilitar {$name} porque este host no "
+                . 'cablea un evaluador de seguridad de plugins, así que nadie puede comprobar si apagarlo '
+                . 'dejaría el grafo sin cerrar. Para ver el efecto SIN cambiar nada: `plugins.simulate`. '
+                . 'Para apagar de todos modos hace falta autoridad explícita: `plugins.disable-unsafe`, '
+                . 'que exige confirmación y no se ofrece a un agente. Nada fue modificado.',
+            );
+        }
 
         // Apagar puede ser irreversible EN LA PRÁCTICA: si el perfil del host requiere una capacidad
         // que sólo este plugin provee, el resolver bloquea el siguiente arranque —y con razón, un
@@ -409,7 +478,17 @@ final readonly class PluginOperations
 
         $this->registry->invalidateActivationCache();
 
-        return ['name' => $name, 'enabled' => $enabled];
+        // El resultado dice CÓMO se autorizó, no sólo qué pasó: un apagado evaluado y uno forzado son
+        // hechos distintos, y un registro que los confunde no sirve para auditar después.
+        // El bloque `safety` sólo al APAGAR: encender nunca se evalúa —agregar un proveedor no puede
+        // quitarle uno a nadie— y ponerlo ahí sería ruido con forma de dato.
+        return $enabled
+            ? ['name' => $name, 'enabled' => true]
+            : [
+                'name' => $name,
+                'enabled' => false,
+                'safety' => ['evaluated' => $this->safety !== null, 'override' => $overridden],
+            ];
     }
 
     /**

@@ -20,6 +20,7 @@ use Milpa\Resolver\Engine\GraphResolver;
 use Milpa\Resolver\Ingest\AttributeLoader;
 use Milpa\Resolver\Input\ResolutionInput;
 use Milpa\Resolver\Manifest\HostProfile;
+use Milpa\Resolver\Report\ResolutionReport;
 use Milpa\Resolver\Report\ResolutionStatus;
 use Milpa\ValueObjects\Capability\CapabilityRequirement;
 
@@ -55,33 +56,7 @@ final class MetadataGraphResolver
             return [];
         }
 
-        $loader = new AttributeLoader();
-        $manifests = [];
-        $requirements = [];
-        foreach ($metadataArrays as $record) {
-            $metadata = new PluginMetadata(
-                version: is_string($record['version'] ?? null) ? $record['version'] : '',
-                author: is_string($record['author'] ?? null) ? $record['author'] : '',
-                site: is_string($record['site'] ?? null) ? $record['site'] : '',
-                name: is_string($record['name'] ?? null) ? $record['name'] : '',
-                type: is_string($record['type'] ?? null) ? $record['type'] : '',
-                provides: is_array($record['provides'] ?? null) ? array_values($record['provides']) : [],
-                requires: is_array($record['requires'] ?? null) ? array_values($record['requires']) : [],
-                suggests: is_array($record['suggests'] ?? null) ? array_values($record['suggests']) : [],
-            );
-            $manifests[] = $loader->fromMetadata($metadata);
-            foreach ($metadata->requires as $entry) {
-                $requirements[] = CapabilityRequirement::parse($entry);
-            }
-        }
-
-        $report = (new GraphResolver())->resolve(new ResolutionInput(
-            hostProfile: new HostProfile(name: 'host', version: '0.0.0', allowedLegacyContracts: ['*']),
-            versionManifests: $manifests,
-            contractManifests: [],
-            capabilityProvisions: [],
-            capabilityRequirements: $requirements,
-        ));
+        $report = $this->resolveRecords($metadataArrays);
 
         if ($report->status === ResolutionStatus::Blocked) {
             throw new \RuntimeException(
@@ -104,5 +79,75 @@ final class MetadataGraphResolver
         }
 
         return count($ordered) === count($metadataArrays) ? $ordered : $metadataArrays;
+    }
+
+    /**
+     * El MISMO análisis que {@see order()}, pero contestando en vez de lanzar.
+     *
+     * ── POR QUÉ HACÍA FALTA ─────────────────────────────────────────────────────────────────────
+     *
+     * `order()` corre en el arranque, y ahí lanzar es correcto: un grafo que no cierra no puede
+     * producir un orden de carga, y seguir sería fingir. Lo que no era correcto es lo que se perdía en
+     * el camino — el resolver produce un {@see ResolutionReport} COMPLETO (qué falta, qué choca, qué
+     * se degrada, a qué lección lleva cada error) y de todo eso sólo sobrevivía la primera línea, como
+     * mensaje de una excepción.
+     *
+     * Y se perdía justo cuando más se necesitaba: con el grafo roto la app no bootea, así que `coa` no
+     * despacha, así que NINGUNA herramienta de diagnóstico corre. Medido en una app de ejemplo con una
+     * capacidad sin proveedor: las quince herramientas del agente caídas, y una línea de error como
+     * único dato. La diagnosis moría con el paciente.
+     *
+     * Esto es el mismo cálculo, disponible ANTES de bootear y sin bootear nada.
+     *
+     * @param list<array<string, mixed>> $metadataArrays name/version/type/provides/requires/suggests
+     *
+     * @throws \InvalidArgumentException cuando un registro está malformado y el resolver se niega a
+     *                                   ingerirlo — eso no es un grafo que no cierra, es una entrada
+     *                                   que no se puede leer, y confundirlos mandaría a alguien a
+     *                                   buscar un proveedor que no era el problema
+     */
+    public function diagnose(array $metadataArrays): ResolutionReport
+    {
+        if ($metadataArrays === []) {
+            // Una app sin plugins tiene un grafo que cierra por vacío, no uno roto. Contestar
+            // `Blocked` aquí mandaría a alguien a buscar un proveedor faltante en una lista vacía.
+            return new ResolutionReport(status: ResolutionStatus::Valid);
+        }
+
+        return $this->resolveRecords($metadataArrays);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $metadataArrays
+     */
+    private function resolveRecords(array $metadataArrays): ResolutionReport
+    {
+        $loader = new AttributeLoader();
+        $manifests = [];
+        $requirements = [];
+        foreach ($metadataArrays as $record) {
+            $metadata = new PluginMetadata(
+                version: is_string($record['version'] ?? null) ? $record['version'] : '',
+                author: is_string($record['author'] ?? null) ? $record['author'] : '',
+                site: is_string($record['site'] ?? null) ? $record['site'] : '',
+                name: is_string($record['name'] ?? null) ? $record['name'] : '',
+                type: is_string($record['type'] ?? null) ? $record['type'] : '',
+                provides: is_array($record['provides'] ?? null) ? array_values($record['provides']) : [],
+                requires: is_array($record['requires'] ?? null) ? array_values($record['requires']) : [],
+                suggests: is_array($record['suggests'] ?? null) ? array_values($record['suggests']) : [],
+            );
+            $manifests[] = $loader->fromMetadata($metadata);
+            foreach ($metadata->requires as $entry) {
+                $requirements[] = CapabilityRequirement::parse($entry);
+            }
+        }
+
+        return (new GraphResolver())->resolve(new ResolutionInput(
+            hostProfile: new HostProfile(name: 'host', version: '0.0.0', allowedLegacyContracts: ['*']),
+            versionManifests: $manifests,
+            contractManifests: [],
+            capabilityProvisions: [],
+            capabilityRequirements: $requirements,
+        ));
     }
 }

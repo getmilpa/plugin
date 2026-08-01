@@ -22,6 +22,9 @@ use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Interfaces\Plugin\PluginsManagerInterface;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
+use Milpa\Plugin\Contracts\StateBaselineInterface;
+use Milpa\Plugin\Runtime\BootStateBaseline;
+use Milpa\Plugin\Runtime\MetadataActivationSafety;
 use Milpa\Plugin\Contracts\AppRoot;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 use Milpa\Plugin\Activation\DeclaredPlugins;
@@ -119,22 +122,54 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
         // which is exactly what such a host has.
         $declared = $this->tryGetService(DeclaredPlugins::class);
 
-        // La comprobación de seguridad al apagar la ofrece el gestor de plugins del host, que es
-        // quien conoce su perfil de arquitectura. Un host que no lo cablee —o que use otro gestor—
-        // sigue pudiendo apagar; lo que pierde es el aviso, no la capacidad.
+        // La comprobación de seguridad al apagar. Un host que use `PluginsManager` la trae en él; uno
+        // que arranque por `Kernel` —la forma de toda app generada— no tiene ese gestor, así que se
+        // arma desde lo que SÍ declara: sus clases de plugin.
+        //
+        // El comentario que estaba aquí decía que un host sin cablear «pierde el aviso, no la
+        // capacidad». Medido, eso significaba que la AUSENCIA de la infraestructura de seguridad
+        // AMPLIABA la autoridad de una operación destructiva, y con ella se pudo dejar una app sin
+        // arrancar. Ahora la ausencia se nota: sin evaluador, `plugins.disable` se niega
+        // ({@see PluginOperations}) y queda la vía de recuperación, que exige confirmación.
         $manager = $this->tryGetService(PluginsManagerInterface::class);
+        $safety = $manager instanceof ActivationSafetyInterface ? $manager : null;
+        if ($safety === null && $declared instanceof DeclaredPlugins && $declared->classes !== []) {
+            $safety = new MetadataActivationSafety(
+                $declared->classes,
+                $registry,
+            );
+        }
 
         // La raíz de la app la dice el host o no la dice nadie: contarla desde este archivo apuntaría
         // adentro de `vendor/` en cuanto el paquete se instale de verdad. Sin ella, las dos que tocan
         // disco no se ofrecen.
         $root = $this->tryGetService(AppRoot::class);
 
+        // CON QUÉ ESTADO EMPEZÓ QUIEN LEE. Si el host declaró una —una sesión que abarca varios
+        // procesos, digamos— manda la suya. Si no, se toma AQUÍ, y aquí es el único momento posible:
+        // este método corre durante el arranque, mientras se recogen las operaciones, o sea antes de
+        // que nadie haya podido llamar a `plugins.disable`.
+        //
+        // El primer intento de esto lo registraba en el contenedor desde la vuelta del agente, y
+        // llegaba TARDE: para entonces las operaciones ya estaban armadas con la referencia vieja, y
+        // el reporte salía con `baseline: null` en una vuelta que sí tenía línea base. Lo encontró un
+        // control positivo del instrumento —apagar un plugin a mano y mirar el reporte— y no una
+        // prueba: las pruebas pasaban las tres, porque probaban las piezas y no el orden.
+        $baseline = $this->tryGetService(StateBaselineInterface::class);
+        if (!$baseline instanceof StateBaselineInterface) {
+            $baseline = BootStateBaseline::capture(new PluginInspection(
+                $registry,
+                $declared instanceof DeclaredPlugins ? $declared->classes : [],
+            ));
+        }
+
         return (new PluginOperations(
             $registry,
             $installer instanceof PluginInstallerInterface ? $installer : null,
             $declared instanceof DeclaredPlugins ? $declared->classes : [],
-            $manager instanceof ActivationSafetyInterface ? $manager : null,
+            $safety,
             $root instanceof AppRoot ? $root->path : null,
+            $baseline,
         ))->operations();
     }
 }

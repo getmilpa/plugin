@@ -17,6 +17,7 @@ namespace Milpa\Plugin\Tests\Runtime;
 
 use Milpa\Plugin\ContractResolver;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
+use Milpa\Resolver\Report\ResolutionStatus;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -118,5 +119,85 @@ final class MetadataGraphResolverTest extends TestCase
             'requires' => $requires,
             'suggests' => [],
         ];
+    }
+
+    /**
+     * `diagnose()` CONTESTA donde `order()` lanza — y ésa es toda su razón de ser.
+     *
+     * Con el grafo roto la app no bootea, así que `coa` no despacha, así que ninguna herramienta de
+     * diagnóstico corre: medido en una app de ejemplo, las quince herramientas del agente caídas y una
+     * línea de error como único dato. La diagnosis moría con el paciente. Este método es el mismo
+     * cálculo, disponible sin bootear.
+     */
+    public function testDiagnoseAnswersWhereOrderThrows(): void
+    {
+        $registros = [[
+            'name' => 'Roto',
+            'version' => '0.1.0',
+            'type' => 'Service',
+            'provides' => [],
+            'requires' => ['search'],
+            'suggests' => [],
+        ]];
+
+        // `order()` lanza, como debe: sin grafo no hay orden de carga que producir.
+        try {
+            (new MetadataGraphResolver())->order($registros);
+            self::fail('un grafo que no cierra no puede producir un orden');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('search', $e->getMessage());
+        }
+
+        // `diagnose()` devuelve el reporte ENTERO, que es lo que el arranque tiraba.
+        $reporte = (new MetadataGraphResolver())->diagnose($registros);
+
+        self::assertSame(ResolutionStatus::Blocked, $reporte->status);
+        self::assertNotSame([], $reporte->errors, 'los errores aprendibles sobreviven');
+
+        $primero = $reporte->errors[0]->toArray();
+        self::assertSame('MILPA_CAPABILITY_MISSING', $primero['code']);
+        self::assertNotSame('', $primero['why'], 'el POR QUÉ, que la excepción conservaba a medias');
+        self::assertNotSame([], $primero['fixes'], 'y cómo se arregla');
+        self::assertArrayHasKey('recommendedActions', $primero, 'lo que un agente puede aplicar sin interpretar');
+    }
+
+    /** Un grafo que cierra se reporta como tal, con su orden de carga. */
+    public function testDiagnoseOnAGraphThatClosesReportsItAsValid(): void
+    {
+        $reporte = (new MetadataGraphResolver())->diagnose([
+            [
+                'name' => 'Buscador',
+                'version' => '1.0.0',
+                'type' => 'Service',
+                'provides' => ['search'],
+                'requires' => [],
+                'suggests' => [],
+            ],
+            [
+                'name' => 'Blog',
+                'version' => '1.0.0',
+                'type' => 'Web',
+                'provides' => [],
+                'requires' => ['search'],
+                'suggests' => [],
+            ],
+        ]);
+
+        self::assertNotSame(ResolutionStatus::Blocked, $reporte->status);
+        self::assertSame([], $reporte->errors);
+    }
+
+    /**
+     * Una app SIN plugins tiene un grafo que cierra por vacío, no uno roto.
+     *
+     * Contestar `Blocked` mandaría a alguien a buscar un proveedor faltante en una lista vacía — y ese
+     * es el estado de toda app recién creada antes de instalar nada.
+     */
+    public function testAnAppWithNoPluginsIsValidAndNotBlocked(): void
+    {
+        $reporte = (new MetadataGraphResolver())->diagnose([]);
+
+        self::assertSame(ResolutionStatus::Valid, $reporte->status);
+        self::assertSame([], $reporte->errors);
     }
 }

@@ -20,6 +20,7 @@ use Milpa\Command\CommandProvider;
 use Milpa\Interfaces\Di\DIContainerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
+use Milpa\Plugin\Contracts\StateBaselineInterface;
 use Milpa\Plugin\Operations\PluginManagementPlugin;
 use Milpa\Plugin\Registry\InMemoryPluginRegistry;
 use PHPUnit\Framework\TestCase;
@@ -110,9 +111,50 @@ final class PluginManagementPluginTest extends TestCase
         ]));
 
         self::assertSame(
-            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.deps', 'plugins.simulate'],
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.disable-unsafe', 'plugins.deps', 'plugins.architecture', 'plugins.simulate'],
             array_map(static fn ($operation): string => $operation->name, $plugin->operations()),
         );
+    }
+
+    /**
+     * LA COSTURA: una línea base declarada en el contenedor tiene que llegar hasta el reporte.
+     *
+     * Las pruebas de {@see PluginInspection} demuestran que el reporte la usa bien cuando la recibe.
+     * Ésta demuestra lo otro, que es donde se pierden las cosas: que el host la encuentre. Sin este
+     * caso, la reparación de Q-P17-J podría estar completa y desconectada — que es exactamente la
+     * forma en que el bucle del agente vivió instalado sin que nadie lo llamara.
+     */
+    public function testABaselineDeclaredInTheContainerReachesTheArchitectureReport(): void
+    {
+        $baseline = new class implements StateBaselineInterface {
+            /** @return list<string>|null */
+            public function enabledAtBaseline(): ?array
+            {
+                return ['AlgoQueYaNoEsta'];
+            }
+
+            public function baselineLabel(): string
+            {
+                return 'que empezó esta vuelta';
+            }
+        };
+
+        $plugin = new PluginManagementPlugin($this->container([
+            PluginRegistryInterface::class => new InMemoryPluginRegistry(),
+            StateBaselineInterface::class => $baseline,
+        ]));
+
+        $arquitectura = null;
+        foreach ($plugin->operations() as $operation) {
+            if ($operation->name === 'plugins.architecture') {
+                $arquitectura = ($operation->handler)([]);
+            }
+        }
+
+        self::assertIsArray($arquitectura);
+        self::assertIsArray($arquitectura['baseline'] ?? null, 'la línea base del contenedor no llegó al reporte');
+        self::assertFalse($arquitectura['baseline']['unchanged']);
+        self::assertSame(['AlgoQueYaNoEsta'], $arquitectura['baseline']['disabledSince']);
     }
 
     public function testWithNoRegistryItSaysWhatIsMissingInsteadOfOfferingNothing(): void

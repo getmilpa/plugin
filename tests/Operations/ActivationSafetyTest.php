@@ -117,21 +117,64 @@ final class ActivationSafetyTest extends TestCase
     }
 
     /**
-     * Sin comprobación cableada, apagar se comporta como siempre.
+     * Sin comprobación cableada, apagar SE NIEGA. Esta prueba está invertida a propósito.
      *
-     * Sólo el host sabe qué perfil satisface, así que un paquete no puede resolverlo sin adivinarlo.
-     * No saber no autoriza a negar: un host que no declara perfil seguiría pudiendo apagar lo suyo.
+     * Antes decía lo contrario, con este argumento: «no saber no autoriza a negar». Medido, ese
+     * argumento tenía el signo al revés — permitía que la AUSENCIA de la infraestructura de seguridad
+     * AMPLIARA la autoridad de una operación destructiva. Se reprodujo: dos proveedores de una
+     * capacidad, apagar uno, apagar el otro, y la app dejó de arrancar. A partir de ahí `enable`
+     * tampoco corre, porque necesita que el host arranque.
+     *
+     * La regla correcta es la misma que este repositorio ya aplica a las comprobaciones: **«no pude
+     * mirar» no es «miré y nada se rompe»** — ahora aplicada a autoridad operativa, no a un gate.
      */
-    public function test_sin_comprobacion_cableada_apagar_no_se_bloquea(): void
+    public function test_sin_comprobacion_cableada_apagar_se_niega(): void
     {
         $registry = $this->registry();
         $ops = new PluginOperations($registry);
 
-        $this->disable($ops, 'CriticalPlugin');
+        try {
+            $this->disable($ops, 'CriticalPlugin');
+            self::fail('debió negarse');
+        } catch (\RuntimeException $e) {
+            self::assertStringContainsString('MILPA_PLUGIN_SAFETY_UNAVAILABLE', $e->getMessage());
+            self::assertStringContainsString('plugins.simulate', $e->getMessage(), 'nombra la vía que NO muta');
+            self::assertStringContainsString('disable-unsafe', $e->getMessage(), 'y la de recuperación');
+        }
 
-        $registro = $registry->find('CriticalPlugin');
-        self::assertNotNull($registro);
-        self::assertFalse($registro->enabled);
+        // Y NADA se modificó: negar y además haber cambiado el estado sería lo peor de las dos.
+        self::assertNull($registry->find('CriticalPlugin')?->enabled ? null : $registry->find('CriticalPlugin'));
+    }
+
+    /**
+     * La vía de recuperación sí apaga, y lo deja registrado como override.
+     *
+     * Existe porque un host deliberadamente mínimo, o uno que hay que recuperar, tiene que poder
+     * apagar. Lo que no puede es hacerlo por el mismo camino y con la misma autoridad que una
+     * operación ordinaria: es otra operación, exige confirmación, y no se ofrece a un agente.
+     */
+    public function test_la_via_de_recuperacion_apaga_y_lo_dice(): void
+    {
+        $registry = $this->registry();
+        $ops = new PluginOperations($registry);
+
+        $recuperacion = null;
+        foreach ($ops->operations() as $op) {
+            if ($op->name === 'plugins.disable-unsafe') {
+                $recuperacion = $op;
+            }
+        }
+
+        self::assertNotNull($recuperacion, 'la vía de recuperación existe');
+        self::assertTrue($recuperacion->requiresConfirmation, 'ninguna autonomía pre-aprueba una firma');
+        self::assertSame(['cli'], $recuperacion->surfaces, 'fuera del catálogo que ve un agente');
+
+        $resultado = ($recuperacion->handler)(['name' => 'CriticalPlugin']);
+
+        self::assertFalse($resultado['enabled']);
+        self::assertFalse($resultado['safety']['evaluated'], 'no se evaluó, y el resultado lo dice');
+        self::assertTrue($resultado['safety']['override']);
+        self::assertFalse($registry->find('CriticalPlugin')?->enabled);
     }
 
     /** ENCENDER nunca se comprueba: agregar un proveedor no puede quitarle uno a nadie. */

@@ -110,7 +110,7 @@ final class PluginOperationsTest extends TestCase
         // `deps` and `simulate` come with the registry because that is all they need: the graph is
         // read from what the host declared plus what the store says boots.
         self::assertSame(
-            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.deps', 'plugins.simulate'],
+            ['plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.disable-unsafe', 'plugins.deps', 'plugins.architecture', 'plugins.simulate'],
             array_keys($this->operations()),
         );
     }
@@ -121,8 +121,8 @@ final class PluginOperationsTest extends TestCase
         // button: the panel would render it and it would fail when pressed.
         self::assertSame(
             [
-                'plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable',
-                'plugins.deps', 'plugins.simulate',
+                'plugins.list', 'plugins.show', 'plugins.enable', 'plugins.disable', 'plugins.disable-unsafe',
+                'plugins.deps', 'plugins.architecture', 'plugins.simulate',
                 'plugins.outdated', 'plugins.install', 'plugins.update', 'plugins.remove',
             ],
             array_keys($this->operations($this->installer())),
@@ -255,7 +255,12 @@ final class PluginOperationsTest extends TestCase
         self::assertSame(['name' => 'MailPlugin', 'enabled' => true], $this->call('plugins.enable', ['name' => 'MailPlugin']));
         self::assertTrue($this->registry->find('MailPlugin')?->enabled);
 
-        self::assertSame(['name' => 'MailPlugin', 'enabled' => false], $this->call('plugins.disable', ['name' => 'MailPlugin']));
+        // Por la vía de recuperación, que es la que un host sin evaluador tiene: apaga y DICE que no
+        // se evaluó y que hubo override. Un apagado forzado y uno comprobado son hechos distintos.
+        self::assertSame(
+            ['name' => 'MailPlugin', 'enabled' => false, 'safety' => ['evaluated' => false, 'override' => true]],
+            $this->call('plugins.disable-unsafe', ['name' => 'MailPlugin']),
+        );
         self::assertFalse($this->registry->find('MailPlugin')?->enabled);
     }
 
@@ -437,7 +442,7 @@ final class PluginOperationsTest extends TestCase
         // switch is what brings a record into existence.
         self::assertNull($this->registry->find('DeclaredFixture'));
 
-        $this->call('plugins.disable', ['name' => 'DeclaredFixture'], null, [DeclaredFixturePlugin::class]);
+        $this->call('plugins.disable-unsafe', ['name' => 'DeclaredFixture'], null, [DeclaredFixturePlugin::class]);
 
         $record = $this->registry->find('DeclaredFixture');
         self::assertNotNull($record);
@@ -449,7 +454,7 @@ final class PluginOperationsTest extends TestCase
     {
         $declared = [DeclaredFixturePlugin::class];
 
-        $this->call('plugins.disable', ['name' => 'DeclaredFixture'], null, $declared);
+        $this->call('plugins.disable-unsafe', ['name' => 'DeclaredFixture'], null, $declared);
         $this->call('plugins.enable', ['name' => 'DeclaredFixture'], null, $declared);
 
         self::assertTrue($this->registry->find('DeclaredFixture')?->enabled);

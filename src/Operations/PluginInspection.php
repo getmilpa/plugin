@@ -17,10 +17,13 @@ namespace Milpa\Plugin\Operations;
 
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
+use Milpa\Plugin\Contracts\StateBaselineInterface;
 use Milpa\Plugin\LockFileManager;
 use Milpa\Plugin\PluginManifest;
 use Milpa\Plugin\Runtime\MetadataGraphResolver;
+use Milpa\Services\CapabilityMatcher;
 
 /**
  * Mirar los plugins antes de tocarlos: si el grafo resuelve y en qué orden, qué pasaría al encender
@@ -55,6 +58,17 @@ final readonly class PluginInspection
         private array $declared = [],
         private ?string $root = null,
         private ?PluginInstallerInterface $installer = null,
+        // Para contestar «qué se rompe si apago esto» sin intentar apagarlo. Opcional: sin ella, la
+        // arquitectura se reporta igual y ese campo va en `null` — decir «nada se rompe» cuando en
+        // realidad no se preguntó sería la peor de las respuestas.
+        private ?ActivationSafetyInterface $safety = null,
+        // El criterio único de identidad de capacidad, compartido con el chequeo pre-boot y el
+        // validador de manifiestos. Ver `settlement-q-p17.md`: eran cuatro y no coincidían.
+        private CapabilityMatcher $matcher = new CapabilityMatcher(),
+        // Con qué estado empezó quien lee. Opcional, y su ausencia se REPORTA: un reporte que callara
+        // que no pudo preguntar se leería como «nada ha cambiado», que es la afirmación falsa que
+        // Q-P17-J midió costando 10 respuestas erróneas de 12.
+        private ?StateBaselineInterface $baseline = null,
     ) {
     }
 
@@ -66,7 +80,7 @@ final readonly class PluginInspection
      *
      * @param array<string, mixed> $input
      *
-     * @return array{ok: bool, total: int, loadOrder?: list<array{position: int, plugin: string, provides: string, requires: string}>, error?: string}
+     * @return array{ok: bool, total: int, loadOrder?: list<array{position: int, plugin: string, provides: list<string>, requires: list<string>}>, error?: string}
      */
     public function deps(array $input): array
     {
@@ -95,12 +109,253 @@ final readonly class PluginInspection
             $orden[] = [
                 'position' => $i + 1,
                 'plugin' => \is_string($plugin['name'] ?? null) ? $plugin['name'] : '?',
-                'provides' => $this->labels($plugin['provides'] ?? []),
-                'requires' => $this->labels($plugin['requires'] ?? []),
+                // LOS DATOS, no la tabla. Esto devolvía la forma corta ya pintada —y `'—'` cuando la
+                // lista venía vacía— así que por `--json` y por MCP un agente recibía un guion donde
+                // esperaba una lista y no podía hacer nada con él. Pintar es de la superficie; una
+                // operación que ya pintó le quitó la decisión a las otras tres (ADR-0035).
+                'provides' => $this->capabilityIds($plugin['provides'] ?? []),
+                'requires' => $this->capabilityIds($plugin['requires'] ?? []),
             ];
         }
 
         return ['ok' => true, 'total' => \count($orden), 'loadOrder' => $orden];
+    }
+
+    /**
+     * El grafo de esta app como DATO: qué capacidades hay, quién provee cada una, quién la pide, cuál
+     * falta, y qué se rompería si apagas cada plugin (P17.2).
+     *
+     * ── POR QUÉ NO ALCANZABA CON `deps` ─────────────────────────────────────────────────────────
+     *
+     * `deps` contesta en qué ORDEN arrancan, que es una pregunta de arranque. Las que se hacen cuando
+     * alguien —o algo— quiere OPERAR el sistema son otras: «¿quién usa `database`?», «¿qué se cae si
+     * apago esto?», «¿qué capacidad quedó sin dueño?». Todas se derivan del mismo grafo y ninguna se
+     * podía contestar sin leer plugin por plugin y cruzar a mano.
+     *
+     * El índice INVERSO es la mitad que faltaba. Un agente que sólo ve «cada plugin declara esto»
+     * tiene que reconstruir «quién depende de qué» en su cabeza, en cada vuelta y sin poder
+     * verificarlo. Cruzarlo aquí cuesta un bucle y se calcula una vez.
+     *
+     * ── EL IMPACTO SE PREGUNTA, NO SE INTENTA ───────────────────────────────────────────────────
+     *
+     * `blockingReasonWithout()` existía y sólo se alcanzaba al NEGAR un `plugins.disable` — o sea que
+     * la única forma de saber qué se rompía era intentar romperlo. Preguntar antes de causar es la
+     * misma distinción que separa `simulate` de `enable`.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array{ok: bool, total: int, plugins: list<array<string, mixed>>, capabilities: list<array<string, mixed>>, unsatisfied: list<string>, baseline?: array<string, mixed>|bool|null, error?: string}
+     */
+    public function architecture(array $input): array
+    {
+        unset($input);
+
+        $activos = $this->active();
+        if ($activos === []) {
+            // CON línea base igual: cero plugins activos puede ser una app vacía o una app que el
+            // lector acaba de dejar vacía, y son cosas distintas. Sin este `baseline` el segundo caso
+            // —el más peligroso de todos— se reportaría como si siempre hubiera sido así.
+            return [
+                'ok' => true,
+                'total' => 0,
+                'plugins' => [],
+                'capabilities' => [],
+                'unsatisfied' => [],
+                'baseline' => $this->sinceBaseline([]),
+            ];
+        }
+
+        $plugins = [];
+        /** @var array<string, array{providedBy: list<string>, requiredBy: list<string>}> $indice */
+        $indice = [];
+
+        foreach ($activos as $activo) {
+            $nombre = \is_string($activo['name'] ?? null) ? $activo['name'] : '?';
+            $provee = $this->capabilityIds($activo['provides'] ?? []);
+            $pide = $this->capabilityIds($activo['requires'] ?? []);
+
+            foreach ($provee as $id) {
+                $indice[$id] ??= ['providedBy' => [], 'requiredBy' => []];
+                $indice[$id]['providedBy'][] = $nombre;
+            }
+            foreach ($pide as $id) {
+                $indice[$id] ??= ['providedBy' => [], 'requiredBy' => []];
+                $indice[$id]['requiredBy'][] = $nombre;
+            }
+
+            $plugins[] = [
+                'name' => $nombre,
+                'version' => \is_string($activo['version'] ?? null) ? $activo['version'] : '',
+                'provides' => $provee,
+                'requires' => $pide,
+            ];
+        }
+
+        // QUÉ SE ROMPE si apagas cada uno, DERIVADO del índice: si es el único proveedor de algo que
+        // alguien pide, apagarlo deja a ese alguien sin proveedor.
+        //
+        // Se calcula aquí y no se le pide sólo a `ActivationSafetyInterface` porque ese contrato
+        // necesita un perfil de host, y un host que no lo declara —la app que sale de un
+        // `create-project`, por ejemplo— recibía `null` en todos: «no se pudo preguntar» presentado
+        // como si fuera la respuesta. La derivación no necesita perfil y contesta el caso común; el
+        // contrato, cuando está, contesta mejor porque además conoce ese perfil.
+        foreach ($plugins as $i => $plugin) {
+            $rompe = null;
+            foreach ($plugin['provides'] as $id) {
+                $otros = array_values(array_filter(
+                    $indice[$id]['providedBy'],
+                    static fn (string $n): bool => $n !== $plugin['name'],
+                ));
+                $usuarios = array_values(array_filter(
+                    $indice[$id]['requiredBy'],
+                    static fn (string $n): bool => $n !== $plugin['name'],
+                ));
+
+                if ($otros === [] && $usuarios !== []) {
+                    $rompe = sprintf(
+                        'es el único que provee «%s», que %s %s',
+                        $id,
+                        \count($usuarios) === 1 ? 'necesita' : 'necesitan',
+                        implode(', ', $usuarios),
+                    );
+
+                    break;
+                }
+            }
+
+            $plugins[$i]['breaksIfDisabled'] = $this->safety?->blockingReasonWithout($plugin['name']) ?? $rompe;
+        }
+
+        // LA LÍNEA BASE. Todo lo de arriba describe el estado ACTUAL, y hasta aquí el reporte no tenía
+        // forma de decirlo. Ver {@see StateBaselineInterface}: un agente que apagó un plugin y después
+        // leyó este reporte citó `breaksIfDisabled` —cierto, sobre OTRO plugin y una acción futura—
+        // como la consecuencia de su propio apagado. 10 de 12 corridas contestaron mal así.
+        $linea = $this->sinceBaseline($plugins);
+        if (\is_array($linea) && !$linea['unchanged']) {
+            // El aviso va PEGADO al campo que se leyó mal, no sólo al pie del reporte. Lo que el
+            // modelo cita es la cadena; una nota lejos de ella es una nota que no acompaña al error.
+            foreach ($plugins as $i => $plugin) {
+                if (\is_string($plugin['breaksIfDisabled'])) {
+                    $plugins[$i]['breaksIfDisabled'] .= sprintf(
+                        ' — esto describe apagarlo DESDE EL ESTADO ACTUAL, que ya no es el estado con %s: %s',
+                        $linea['label'],
+                        $linea['note'],
+                    );
+                }
+            }
+        }
+
+        $capacidades = [];
+        $huerfanas = [];
+        foreach ($indice as $id => $lados) {
+            $satisfecha = $lados['providedBy'] !== [];
+            $capacidades[] = [
+                'id' => $id,
+                'providedBy' => $lados['providedBy'],
+                'requiredBy' => $lados['requiredBy'],
+                'satisfied' => $satisfecha,
+            ];
+            if (!$satisfecha && $lados['requiredBy'] !== []) {
+                $huerfanas[] = $id;
+            }
+        }
+
+        return [
+            // El veredicto es si el grafo CIERRA, y por eso no depende de que haya capacidades: una
+            // app sin ninguna cierra por vacío. Lo que lo abre es una que alguien pide y nadie da.
+            'ok' => $huerfanas === [],
+            'total' => \count($plugins),
+            'plugins' => $plugins,
+            'capabilities' => $capacidades,
+            'unsatisfied' => $huerfanas,
+            // `null` significa «nadie pudo decir desde cuándo miras», y se distingue de `unchanged:
+            // true`, que afirma que no ha cambiado nada. Confundir las dos es exactamente el error
+            // que este campo existe para no cometer.
+            'baseline' => $linea,
+        ];
+    }
+
+    /**
+     * Qué cambió desde que empezó la vuelta de quien lee.
+     *
+     * Devuelve `null` cuando nadie puede contestarlo. Ese `null` no es un descuido: un reporte que
+     * omitiera el campo se leería como «esto es el mundo», y el mundo del que habla puede llevar tres
+     * apagados encima puestos por el propio lector.
+     *
+     * @param list<array<string, mixed>> $plugins los activos AHORA, ya armados
+     *
+     * ── LA REGLA SOLO_SI_CAMBIO, Y SU MEDICIÓN ──────────────────────────────────────────────────
+     *
+     * El bloque se emite **sólo si cambió algo**. Con el bloque en todas las lecturas, la corrección
+     * de las corridas que NO habían mutado cayó de 6 de 10 a **1 de 10**
+     * (Q-P17-K). Era texto verdadero, corto y
+     * exacto, y en 20 de 32 corridas no había absolutamente nada que fechar.
+     *
+     * Tres respuestas, y las tres distintas — colapsar las dos primeras ahorraría cuatro tokens y
+     * borraría la única distinción que protege al lector:
+     *
+     * - `null`  — nadie pudo llevar la cuenta; algo pudo cambiar sin que se sepa;
+     * - `true`  — se llevó, y no cambió nada desde el arranque;
+     * - `array` — se llevó, y esto es lo que cambió.
+     *
+     * Lo que esto NO arregla: que fechar repare la lectura sigue **sin medirse**.
+     *
+     * @return array{label: string, enabled: list<string>, unchanged: bool, disabledSince: list<string>, enabledSince: list<string>, note: string}|bool|null
+     */
+    private function sinceBaseline(array $plugins): array|bool|null
+    {
+        $inicial = $this->baseline?->enabledAtBaseline();
+        if ($inicial === null) {
+            return null;
+        }
+
+        $ahora = [];
+        foreach ($plugins as $plugin) {
+            if (\is_string($plugin['name'] ?? null)) {
+                $ahora[] = $plugin['name'];
+            }
+        }
+
+        $apagados = array_values(array_diff($inicial, $ahora));
+        $encendidos = array_values(array_diff($ahora, $inicial));
+        $igual = $apagados === [] && $encendidos === [];
+
+        $label = $this->baseline->baselineLabel();
+
+        // La nota se redacta aquí y no en el host porque tiene que decir la MISMA cosa en las tres
+        // superficies. Y dice la consecuencia, no sólo el hecho: «se apagó X» invita a seguir leyendo
+        // el reporte como si contestara la pregunta original, y no la contesta.
+        if ($igual) {
+            $nota = sprintf('nada se ha encendido ni apagado desde %s: este reporte y aquel momento coinciden', $label);
+        } else {
+            $partes = [];
+            if ($apagados !== []) {
+                $partes[] = 'se apagó ' . implode(', ', $apagados);
+            }
+            if ($encendidos !== []) {
+                $partes[] = 'se encendió ' . implode(', ', $encendidos);
+            }
+            $nota = sprintf(
+                'desde %s %s. Una pregunta sobre aquel estado NO se contesta con este reporte; para eso está la simulación, que pregunta sin cambiar nada.',
+                $label,
+                implode(' y ', $partes),
+            );
+        }
+
+        // AQUÍ SE PAGA O NO SE PAGA. Si nada se movió no hay nada que enmarcar, y emitir el bloque
+        // igual costó 5 de 10 respuestas correctas a cambio de decir «no pasó nada».
+        if ($igual) {
+            return true;
+        }
+
+        return [
+            'label' => $label,
+            'enabled' => $inicial,
+            'unchanged' => $igual,
+            'disabledSince' => $apagados,
+            'enabledSince' => $encendidos,
+            'note' => $nota,
+        ];
     }
 
     /**
@@ -420,36 +675,28 @@ final readonly class PluginInspection
     /**
      * Si una capacidad requerida la satisface una provista.
      *
-     * Compara IDENTIDADES y no la forma de la entrada: la familia escribe una capacidad como cadena
-     * suelta o como registro con `id`/`interface`, y las dos formas nombran lo mismo. Comparar
-     * estructuras diría que no encajan por estar escritas distinto.
+     * El criterio NO vive aquí. Vive en {@see CapabilityMatcher}, y esta clase lo consume igual que
+     * el chequeo pre-boot y el validador de manifiestos. Tenerlo propio fue el defecto: el inspector
+     * ignoraba `oneOf`, así que reportaba como no cubierta una capacidad que el motor sí resolvía —
+     * y el inspector es justo la superficie que se ofrece como diagnóstico.
      */
     private function satisfies(mixed $requerida, mixed $provista): bool
     {
-        $quiere = $this->identities($requerida);
+        if ((!\is_string($requerida) && !\is_array($requerida)) || (!\is_string($provista) && !\is_array($provista))) {
+            return false;
+        }
 
-        return $quiere !== [] && array_intersect($quiere, $this->identities($provista)) !== [];
+        return $this->matcher->identityMatches($provista, $requerida);
     }
 
     /** @return list<string> */
     private function identities(mixed $entrada): array
     {
-        if (\is_string($entrada)) {
-            return trim($entrada) === '' ? [] : [trim($entrada)];
-        }
-        if (!\is_array($entrada)) {
+        if (!\is_string($entrada) && !\is_array($entrada)) {
             return [];
         }
 
-        $ids = [];
-        foreach (['id', 'interface'] as $llave) {
-            $valor = $entrada[$llave] ?? null;
-            if (\is_string($valor) && trim($valor) !== '') {
-                $ids[] = trim($valor);
-            }
-        }
-
-        return $ids;
+        return $this->matcher->identitiesOffered($entrada);
     }
 
     /** El nombre legible de una capacidad: su id, o la forma corta de su interfaz. */
@@ -464,14 +711,25 @@ final readonly class PluginInspection
         return end($partes);
     }
 
-    /** Las capacidades de una lista, en su forma corta y separadas por coma. */
-    private function labels(mixed $entradas): string
+    /**
+     * Los identificadores de una lista de capacidades, como lista.
+     *
+     * @return list<string>
+     */
+    private function capabilityIds(mixed $entradas): array
     {
-        if (!\is_array($entradas) || $entradas === []) {
-            return '—';
+        if (!\is_array($entradas)) {
+            return [];
         }
 
-        return implode(', ', array_map(fn (mixed $e): string => $this->label($e), array_values($entradas)));
+        $ids = [];
+        foreach (array_values($entradas) as $entrada) {
+            foreach ($this->identities($entrada) as $id) {
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
     }
 
     /** @param array<string, mixed> $input */

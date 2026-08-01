@@ -17,6 +17,8 @@ namespace Milpa\Plugin\Tests\Operations;
 
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Plugin\Contracts\PluginRecord;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
+use Milpa\Plugin\Contracts\StateBaselineInterface;
 use Milpa\Plugin\Operations\PluginInspection;
 use Milpa\Plugin\Registry\InMemoryPluginRegistry;
 use PHPUnit\Framework\TestCase;
@@ -348,19 +350,35 @@ final class PluginInspectionTest extends TestCase
     }
 
     /**
-     * Un requisito escrito como FQCN suelto NO lo satisface un proveedor que sólo lo declara como
-     * `interface` de un registro. Lo decide el resolver, y esta prueba lo deja escrito.
+     * Un requisito escrito como FQCN suelto SÍ lo satisface un proveedor que lo declara como
+     * `interface` de un registro rico. Antes no, y ése era el pie de banco.
      *
-     * Es un pie de banco real: las dos formas se leen igual para un humano —el mismo FQCN aparece en
-     * los dos manifiestos— y el grafo queda abierto de todos modos. Antes de esta prueba, descubrirlo
-     * costaba un arranque bloqueado con el proveedor instalado y a la vista.
+     * Las dos formas se leen igual para un humano —el mismo FQCN aparece en los dos manifiestos— y
+     * el grafo quedaba abierto de todos modos, porque el motor comparaba SÓLO `id` mientras el
+     * chequeo pre-boot, el validador y el inspector contaban también `interface`. Tres contra uno, y
+     * el que disentía era el que bloquea el arranque. Con {@see \Milpa\Services\CapabilityMatcher}
+     * un registro ofrece sus dos identidades en las cuatro superficies.
+     *
+     * P17.3 · `settlement-q-p17.md`, que además midió que la correspondencia id↔interfaz ya es
+     * biyectiva en esta familia, así que unificarlas no colapsa dos capacidades en una.
      */
-    public function testABareRequirementIsNotSatisfiedByARecordThatOnlyNamesItAsAnInterface(): void
+    public function testABareRequirementIsSatisfiedByARecordThatNamesItAsAnInterface(): void
     {
         $r = $this->inspection([ProveedorRicoFixture::class, ConsumidorFixture::class])
             ->simulate(['plugin' => 'ConsumidorFixture']);
 
-        self::assertFalse($r['ok']);
+        self::assertTrue($r['wouldResolve'], (string) ($r['error'] ?? ''));
+        self::assertTrue($r['ok']);
+    }
+
+    /**
+     * El control negativo del anterior: unificar identidades no volvió al motor incapaz de reportar
+     * una capacidad que de verdad no provee nadie (ADR-0029).
+     */
+    public function testACapabilityNobodyProvidesIsStillMissing(): void
+    {
+        $r = $this->inspection([ConsumidorFixture::class])->simulate(['plugin' => 'ConsumidorFixture']);
+
         self::assertFalse($r['wouldResolve']);
         self::assertStringContainsString('MILPA_CAPABILITY_MISSING', (string) $r['error']);
         self::assertStringContainsString('CosaContract', (string) $r['error']);
@@ -422,6 +440,371 @@ final class PluginInspectionTest extends TestCase
             $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
         }
         rmdir($dir);
+    }
+
+    /**
+     * EL ÍNDICE INVERSO: quién provee cada capacidad y quién la usa (P17.2).
+     *
+     * Es la mitad que faltaba. Un agente que sólo ve «cada plugin declara esto» tiene que reconstruir
+     * «quién depende de qué» en su cabeza, en cada vuelta y sin poder verificarlo. Cruzarlo aquí
+     * cuesta un bucle y se calcula una vez.
+     */
+    public function testTheArchitectureCrossesTheGraphBothWays(): void
+    {
+        $r = $this->inspection([ProveedorFixture::class, ConsumidorFixture::class])->architecture([]);
+
+        self::assertTrue($r['ok']);
+        self::assertSame(2, $r['total']);
+        self::assertSame([], $r['unsatisfied']);
+
+        self::assertCount(1, $r['capabilities']);
+        $capacidad = $r['capabilities'][0];
+        self::assertSame('Acme\\Fixtures\\CosaContract', $capacidad['id']);
+        self::assertSame(['ProveedorFixture'], $capacidad['providedBy']);
+        self::assertSame(['ConsumidorFixture'], $capacidad['requiredBy'], 'quién la usa — lo que antes había que cruzar a mano');
+        self::assertTrue($capacidad['satisfied']);
+    }
+
+    /**
+     * Una capacidad que alguien pide y nadie da se reporta como huérfana, y ABRE el veredicto.
+     *
+     * Es la misma condición que impide arrancar, contestada por una operación de sólo lectura en vez
+     * de por una excepción de arranque.
+     */
+    public function testACapabilityNobodyProvidesIsReportedAsUnsatisfied(): void
+    {
+        $r = $this->inspection([ConsumidorFixture::class])->architecture([]);
+
+        self::assertFalse($r['ok']);
+        self::assertSame(['Acme\\Fixtures\\CosaContract'], $r['unsatisfied']);
+
+        $capacidad = $r['capabilities'][0];
+        self::assertSame([], $capacidad['providedBy']);
+        self::assertFalse($capacidad['satisfied']);
+    }
+
+    /**
+     * QUÉ SE ROMPE si apagas cada plugin — preguntado, no intentado.
+     *
+     * `blockingReasonWithout()` existía y sólo se alcanzaba al NEGAR un `plugins.disable`: la única
+     * forma de saber qué se rompía era intentar romperlo. Preguntar antes de causar es la misma
+     * distinción que separa `simulate` de `enable`.
+     */
+    public function testItSaysWhatWouldBreakWithoutTryingToBreakIt(): void
+    {
+        $safety = new class () implements ActivationSafetyInterface {
+            public function blockingReasonWithout(string $pluginName): ?string
+            {
+                return $pluginName === 'ProveedorFixture'
+                    ? 'ConsumidorFixture requires "Acme\\Fixtures\\CosaContract" and nobody else provides it.'
+                    : null;
+            }
+        };
+
+        $inspection = new PluginInspection(
+            new InMemoryPluginRegistry(),
+            [ProveedorFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            $safety,
+        );
+
+        $porNombre = [];
+        foreach ($inspection->architecture([])['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+
+        self::assertStringContainsString('ConsumidorFixture requires', (string) $porNombre['ProveedorFixture']);
+        self::assertNull($porNombre['ConsumidorFixture'], 'apagar al que sólo consume no rompe nada');
+    }
+
+    /**
+     * SIN el contrato de seguridad, el impacto se DERIVA del índice.
+     *
+     * Ese contrato necesita un perfil de host, y un host que no lo declara —la app que sale de un
+     * `create-project`, por ejemplo— recibía `null` en todos los plugins: «no se pudo preguntar»
+     * presentado como si fuera «nada se rompe», que es la peor de las respuestas porque autoriza un
+     * `disable` con una tranquilidad que nadie verificó. La derivación no necesita perfil: si es el
+     * único proveedor de algo que alguien pide, apagarlo deja a ese alguien sin proveedor.
+     */
+    public function testWithoutTheSafetyContractTheImpactIsDerivedFromTheIndex(): void
+    {
+        $r = $this->inspection([ProveedorFixture::class, ConsumidorFixture::class])->architecture([]);
+
+        $porNombre = [];
+        foreach ($r['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+
+        self::assertStringContainsString('único que provee', (string) $porNombre['ProveedorFixture']);
+        self::assertStringContainsString('ConsumidorFixture', (string) $porNombre['ProveedorFixture']);
+        self::assertNull($porNombre['ConsumidorFixture'], 'apagar al que sólo consume no rompe nada');
+    }
+
+    /**
+     * Y con DOS proveedores, apagar uno no rompe nada: el otro sigue.
+     *
+     * Es lo que distingue una derivación de una heurística asustadiza. Sin este caso, «es proveedor»
+     * y «es el único proveedor» se confundirían, y la respuesta bloquearía apagados perfectamente
+     * seguros.
+     */
+    public function testWithTwoProvidersTurningOneOffBreaksNothing(): void
+    {
+        $r = $this->inspection([
+            ProveedorFixture::class,
+            ProveedorRicoFixture::class,
+            ConsumidorFixture::class,
+        ])->architecture([]);
+
+        $porNombre = [];
+        foreach ($r['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+
+        self::assertNull($porNombre['ProveedorFixture'], 'el otro proveedor sigue ahí');
+        self::assertNull($porNombre['ProveedorRicoFixture']);
+    }
+
+    /**
+     * SIN alguien que diga desde cuándo miras, el reporte lo DICE en vez de suponer que nada cambió.
+     *
+     * `null` y «no cambió nada» son afirmaciones distintas, y confundirlas es el error entero: un
+     * reporte que omitiera el campo se lee como «esto es el mundo», y el mundo del que habla puede
+     * llevar encima los apagados que hizo el propio lector.
+     */
+    public function testWithoutABaselineProviderTheReportSaysSoInsteadOfClaimingNothingChanged(): void
+    {
+        $r = $this->inspection([ProveedorFixture::class, ConsumidorFixture::class])->architecture([]);
+
+        self::assertArrayHasKey('baseline', $r);
+        self::assertNull($r['baseline'], 'no se pudo preguntar, y eso no es «no cambió nada»');
+    }
+
+    /**
+     * Con línea base y nada movido, el reporte lo dice en UNA palabra, no en un bloque.
+     *
+     * Medido en Q-P17-K: con el bloque completo en
+     * todas las lecturas, la corrección de las corridas que no habían mutado cayó de 6 de 10 a 1 de
+     * 10. El bloque era cierto y era inútil — no había nada que fechar.
+     *
+     * Y `true` NO es `null`: `null` dice que nadie llevó la cuenta, o sea que algo pudo cambiar sin
+     * que se sepa. Ésa es la distinción que este campo existe para sostener.
+     */
+    public function testWhenNothingMovedSinceTheBaselineTheReportSaysSoInOneWord(): void
+    {
+        $inspection = new PluginInspection(
+            new InMemoryPluginRegistry(),
+            [ProveedorFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorFixture', 'ConsumidorFixture']),
+        );
+
+        $r = $inspection->architecture([]);
+
+        self::assertTrue($r['baseline'], 'se preguntó y no cambió nada: una palabra, no un bloque');
+        self::assertNotNull($r['baseline'], '`null` sería «nadie llevó la cuenta», que es otra cosa');
+
+        $porNombre = [];
+        foreach ($r['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+        self::assertStringNotContainsString('ESTADO ACTUAL', (string) $porNombre['ProveedorFixture']);
+    }
+
+    /**
+     * EL CASO MEDIDO, reproducido: dos proveedores, el lector apaga uno, y después lee el reporte.
+     *
+     * Es la corrida de Q-P17-J que se repitió 12
+     * veces y se contestó mal 10. El agente leyó el `breaksIfDisabled` del proveedor SUPERVIVIENTE
+     * —cierto: apagarlo a él sí rompería al consumidor— y lo citó como la consecuencia del apagado
+     * que él acababa de hacer sobre el OTRO.
+     *
+     * Nadie le dijo nada falso. Lo que faltaba era desde qué estado se afirmaba, y eso es lo que esta
+     * prueba fija: el aviso va PEGADO a la cadena que se citó mal, no sólo al pie del reporte.
+     */
+    public function testAfterTheReaderTurnedAPluginOffTheImpactFieldSaysItSpeaksFromTheCurrentState(): void
+    {
+        $registry = $this->conUnoApagado();
+
+        $inspection = new PluginInspection(
+            $registry,
+            [ProveedorFixture::class, ProveedorRicoFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorFixture', 'ProveedorRicoFixture', 'ConsumidorFixture']),
+        );
+
+        $r = $inspection->architecture([]);
+
+        self::assertFalse($r['baseline']['unchanged']);
+        self::assertSame(['ProveedorRicoFixture'], $r['baseline']['disabledSince']);
+
+        $porNombre = [];
+        foreach ($r['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+
+        // El superviviente SÍ rompe ahora al consumidor, y eso sigue siendo verdad. Lo que cambia es
+        // que la cadena ya no se puede leer como una consecuencia de lo que el lector hizo.
+        $aviso = (string) $porNombre['ProveedorFixture'];
+        self::assertStringContainsString('único que provee', $aviso);
+        self::assertStringContainsString('ESTADO ACTUAL', $aviso);
+        self::assertStringContainsString('ProveedorRicoFixture', $aviso, 'nombra lo que el lector apagó');
+    }
+
+    /** Un veredicto que dice `null` no se decora: no hay nada que fechar. */
+    public function testTheWarningIsNotAppendedToPluginsThatBreakNothing(): void
+    {
+        $registry = $this->conUnoApagado();
+
+        $inspection = new PluginInspection(
+            $registry,
+            [ProveedorFixture::class, ProveedorRicoFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorFixture', 'ProveedorRicoFixture', 'ConsumidorFixture']),
+        );
+
+        $porNombre = [];
+        foreach ($inspection->architecture([])['plugins'] as $plugin) {
+            $porNombre[$plugin['name']] = $plugin['breaksIfDisabled'];
+        }
+
+        self::assertNull($porNombre['ConsumidorFixture']);
+    }
+
+    /**
+     * Las TRES respuestas son distintas, y la prueba las fija juntas porque el defecto sería
+     * confundirlas.
+     *
+     * `null` = nadie llevó la cuenta, así que algo pudo cambiar sin que se sepa · `true` = se llevó y
+     * no cambió nada · `array` = se llevó y esto cambió. Colapsar las dos primeras ahorraría cuatro
+     * tokens y borraría la única distinción que protege al lector.
+     */
+    public function testTheThreeBaselineAnswersAreDistinguishable(): void
+    {
+        $sin = $this->inspection([ProveedorFixture::class, ConsumidorFixture::class])->architecture([]);
+
+        $quieto = (new PluginInspection(
+            new InMemoryPluginRegistry(),
+            [ProveedorFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorFixture', 'ConsumidorFixture']),
+        ))->architecture([]);
+
+        $movido = (new PluginInspection(
+            $this->conUnoApagado(),
+            [ProveedorFixture::class, ProveedorRicoFixture::class, ConsumidorFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorFixture', 'ProveedorRicoFixture', 'ConsumidorFixture']),
+        ))->architecture([]);
+
+        self::assertNull($sin['baseline'], 'nadie pudo llevar la cuenta');
+        self::assertTrue($quieto['baseline'], 'se llevó y no cambió nada');
+        self::assertIsArray($movido['baseline'], 'se llevó y esto cambió');
+    }
+
+    /** El registro tras un `plugins.disable` del lector: el rico queda apagado. */
+    private function conUnoApagado(): InMemoryPluginRegistry
+    {
+        $registry = new InMemoryPluginRegistry();
+        $registry->register(new PluginRecord(
+            name: 'ProveedorRicoFixture',
+            version: '1.0.0',
+            author: 'fixture',
+            site: 'https://example.com',
+            type: 'Service',
+            installed: true,
+            enabled: false,
+        ));
+
+        return $registry;
+    }
+
+    /** @param list<string> $encendidos */
+    private function baseline(array $encendidos): StateBaselineInterface
+    {
+        return new class($encendidos) implements StateBaselineInterface {
+            /** @param list<string> $encendidos */
+            public function __construct(private readonly array $encendidos)
+            {
+            }
+
+            /** @return list<string>|null */
+            public function enabledAtBaseline(): ?array
+            {
+                return $this->encendidos;
+            }
+
+            public function baselineLabel(): string
+            {
+                return 'que empezó esta vuelta';
+            }
+        };
+    }
+
+    /**
+     * CERO plugins activos también lleva línea base, y es el caso más peligroso de todos.
+     *
+     * Una app vacía y una app que el lector acaba de dejar vacía se ven idénticas en el reporte. La
+     * segunda es alguien que apagó el último proveedor y va a leer «no hay nada» como si siempre
+     * hubiera sido así.
+     */
+    public function testAnEmptyGraphStillSaysWhatTheReaderTurnedOff(): void
+    {
+        $registry = $this->conUnoApagado();
+        $inspection = new PluginInspection(
+            $registry,
+            [ProveedorRicoFixture::class],
+            null,
+            null,
+            null,
+            baseline: $this->baseline(['ProveedorRicoFixture']),
+        );
+
+        $r = $inspection->architecture([]);
+
+        self::assertSame([], $r['plugins']);
+        self::assertFalse($r['baseline']['unchanged'], 'el vacío es reciente y el reporte lo dice');
+        self::assertSame(['ProveedorRicoFixture'], $r['baseline']['disabledSince']);
+    }
+
+    /** Una app sin plugins tiene un grafo que cierra por vacío. */
+    public function testAnAppWithNoPluginsHasAGraphThatClosesByBeingEmpty(): void
+    {
+        $r = $this->inspection([])->architecture([]);
+
+        self::assertTrue($r['ok']);
+        self::assertSame([], $r['capabilities']);
+    }
+
+    /**
+     * `deps` devuelve DATOS, no una tabla ya pintada.
+     *
+     * Devolvía la forma corta de cada capacidad —y `'—'` cuando la lista venía vacía— así que por
+     * `--json` y por MCP un agente recibía un guion donde esperaba una lista. Pintar es de la
+     * superficie; una operación que ya pintó le quitó la decisión a las otras tres (ADR-0035).
+     */
+    public function testDepsReturnsDataAndNotAnAlreadyPaintedTable(): void
+    {
+        $r = $this->inspection([ProveedorFixture::class, ConsumidorFixture::class])->deps([]);
+
+        $porNombre = [];
+        foreach ($r['loadOrder'] as $fila) {
+            $porNombre[$fila['plugin']] = $fila;
+        }
+
+        self::assertSame(['Acme\\Fixtures\\CosaContract'], $porNombre['ProveedorFixture']['provides']);
+        self::assertSame([], $porNombre['ProveedorFixture']['requires'], 'una lista vacía, no un guion');
+        self::assertSame(['Acme\\Fixtures\\CosaContract'], $porNombre['ConsumidorFixture']['requires']);
     }
 }
 
