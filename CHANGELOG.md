@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/getmilpa/plugin/compare/v0.6.0...v0.7.0) (2026-08-01)
+
+
+### Features
+
+* la reparacion de seguridad del apagado, y la linea base del reporte ([b0e2c65](https://github.com/getmilpa/plugin/commit/b0e2c65b4261f2566a2b33e5ce831c5da49b0cbc))
+
+
+### Bug Fixes
+
+* **deps:** el pin de milpa/core deja de ser una jaula de un minor ([f848467](https://github.com/getmilpa/plugin/commit/f848467f6c0cdf2c0eef93c26e108698fa5f4ade))
+
 ## [0.6.0](https://github.com/getmilpa/plugin/compare/v0.5.0...v0.6.0) (2026-07-31)
 
 
