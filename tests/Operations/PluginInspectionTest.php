@@ -732,7 +732,7 @@ final class PluginInspectionTest extends TestCase
     /** @param list<string> $encendidos */
     private function baseline(array $encendidos): StateBaselineInterface
     {
-        return new class($encendidos) implements StateBaselineInterface {
+        return new class ($encendidos) implements StateBaselineInterface {
             /** @param list<string> $encendidos */
             public function __construct(private readonly array $encendidos)
             {

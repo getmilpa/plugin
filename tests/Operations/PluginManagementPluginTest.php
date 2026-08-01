@@ -126,7 +126,7 @@ final class PluginManagementPluginTest extends TestCase
      */
     public function testABaselineDeclaredInTheContainerReachesTheArchitectureReport(): void
     {
-        $baseline = new class implements StateBaselineInterface {
+        $baseline = new class () implements StateBaselineInterface {
             /** @return list<string>|null */
             public function enabledAtBaseline(): ?array
             {

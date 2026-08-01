@@ -55,10 +55,10 @@ final class MetadataActivationSafety implements ActivationSafetyInterface
     private MetadataGraphResolver $resolver;
 
     /**
-     * @param list<class-string>            $declared Las clases que el host declara en `config/plugins.php`.
-     * @param PluginRegistryInterface|null  $registry Quién sabe cuáles están ENCENDIDAS. Sin él sólo se
-     *                                                puede razonar sobre lo declarado, que es más
-     *                                                permisivo — ver {@see enCurso()}.
+     * @param list<class-string>           $declared Las clases que el host declara en `config/plugins.php`.
+     * @param PluginRegistryInterface|null $registry Quién sabe cuáles están ENCENDIDAS. Sin él sólo se
+     *                                               puede razonar sobre lo declarado, que es más
+     *                                               permisivo — ver {@see enCurso()}.
      */
     public function __construct(
         array $declared,
@@ -70,6 +70,13 @@ final class MetadataActivationSafety implements ActivationSafetyInterface
         $this->resolver = $resolver ?? new MetadataGraphResolver();
     }
 
+    /**
+     * El motivo por el que apagar `$pluginName` dejaría este host sin poder arrancar, o `null`.
+     *
+     * Resuelve el grafo SIN ese plugin y devuelve la razón que el resolver dé. Falla cerrado: si la
+     * resolución no se puede hacer, contesta con un motivo bloqueante en vez de con `null` — decir
+     * «no se rompe nada» cuando en realidad no se pudo preguntar es la peor de las respuestas.
+     */
     public function blockingReasonWithout(string $pluginName): ?string
     {
         $restantes = [];

@@ -9,20 +9,38 @@ use Milpa\Plugin\Runtime\MetadataActivationSafety;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
-#[PluginMetadata(version: '1.0.0', author: 'a', site: 'https://e.com', name: 'Almacen', type: 'Service',
-    provides: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'contractVersion' => '1.0.0']])]
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'a',
+    site: 'https://e.com',
+    name: 'Almacen',
+    type: 'Service',
+    provides: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'contractVersion' => '1.0.0']]
+)]
 final class SafetyAlmacen
 {
 }
 
-#[PluginMetadata(version: '1.0.0', author: 'a', site: 'https://e.com', name: 'Espejo', type: 'Service',
-    provides: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'contractVersion' => '1.0.0']])]
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'a',
+    site: 'https://e.com',
+    name: 'Espejo',
+    type: 'Service',
+    provides: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'contractVersion' => '1.0.0']]
+)]
 final class SafetyEspejo
 {
 }
 
-#[PluginMetadata(version: '1.0.0', author: 'a', site: 'https://e.com', name: 'Consumidor', type: 'Service',
-    requires: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'constraint' => '^1.0']])]
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'a',
+    site: 'https://e.com',
+    name: 'Consumidor',
+    type: 'Service',
+    requires: [['id' => 'demo.almacen.v1', 'interface' => 'D\\A', 'constraint' => '^1.0']]
+)]
 final class SafetyConsumidor
 {
 }

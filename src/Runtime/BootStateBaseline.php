@@ -80,6 +80,12 @@ final readonly class BootStateBaseline implements StateBaselineInterface
         return $this->encendidos;
     }
 
+    /**
+     * Qué momento es la línea base, en palabras que quepan dentro de una frase del reporte.
+     *
+     * Se redacta como subordinada porque el reporte la mete en dos: «desde ___ se apagó X» y «que ya
+     * no es el estado con ___».
+     */
     public function baselineLabel(): string
     {
         return 'que empezó esta vuelta';
