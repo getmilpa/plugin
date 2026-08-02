@@ -101,10 +101,18 @@ MCP client, without a controller per surface:
 | `plugins.deps` / `plugins.simulate` | no | no | `plugins:read` |
 | `plugins.verify` | no | no | `plugins:read` |
 | `plugins.outdated` | no | no | `plugins:read` |
-| `plugins.enable` / `plugins.disable` | yes | no | `plugins:write` |
+| `plugins.enable` / `plugins.disable` | yes | no | `plugins:write` — target must be **named** |
 | `plugins.lock` | yes | no | `plugins:write` |
 | `plugins.install` / `plugins.update` | yes | **yes** | `plugins:install` |
 | `plugins.remove` | yes | **yes** | `plugins:write` |
+
+Since 0.8, `plugins.enable` and `plugins.disable` declare `namedTarget: 'name'` — the intent
+contract from `milpa/command` 0.5: the plugin being switched must be named by whoever asked. On a
+host that enforces the contract (the framework's session gate does), an agent told *"remove the old
+plugin"* that picks a candidate on its own gets a formal, answerable question instead of an
+execution. Measured before shipping: the same ambiguous request used to kill a **different plugin
+per run**, with no fact saying why; with the contract, 0 of 80 runs executed an unnamed target and
+the clear order still ran 8/8 without a single pause.
 
 ```php
 use Milpa\Plugin\Operations\PluginManagementPlugin;

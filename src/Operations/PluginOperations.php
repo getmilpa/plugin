@@ -128,6 +128,11 @@ final readonly class PluginOperations
                 scopes: ['plugins:read'],
                 path: '/plugins/show',
             ),
+            // `namedTarget: 'name'` es el contrato de intención de ADR-0044: el plugin que se prende
+            // o se apaga tiene que venir NOMBRADO por quien lo pidió. Q-P19-K midió el costo de no
+            // exigirlo — ante «quita el plugin viejo», tres corridas apagaron un plugin, tres otro,
+            // y ningún hecho dice por qué. Un objetivo que la petición no nombra no se ejecuta: se
+            // pregunta.
             new Operation(
                 name: 'plugins.enable',
                 description: 'Turn a plugin on: it boots from the next request or command.',
@@ -136,6 +141,7 @@ final readonly class PluginOperations
                 mutating: true,
                 scopes: ['plugins:write'],
                 path: '/plugins/enable',
+                namedTarget: 'name',
             ),
             new Operation(
                 name: 'plugins.disable',
@@ -145,6 +151,7 @@ final readonly class PluginOperations
                 mutating: true,
                 scopes: ['plugins:write'],
                 path: '/plugins/disable',
+                namedTarget: 'name',
             ),
             // La vía de RECUPERACIÓN, y es otra operación a propósito.
             //
