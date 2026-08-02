@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/getmilpa/plugin/compare/v0.7.2...v0.8.0) (2026-08-02)
+
+
+### Features
+
+* plugins.enable and plugins.disable declare their named target ([c9bff5b](https://github.com/getmilpa/plugin/commit/c9bff5bf82290c74f3fa35d1ff582f3f31e0b4f8))
+
 ## [0.7.2](https://github.com/getmilpa/plugin/compare/v0.7.1...v0.7.2) (2026-08-01)
 
 
