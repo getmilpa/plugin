@@ -85,7 +85,10 @@ final readonly class PluginOperations
     {
         return new PluginInspection(
             $this->registry,
-            $this->declared,
+            // Lo declarado AHORA, por la misma razón que en `known()`: la inspección contesta
+            // «¿existe este plugin?», y contestarlo desde la foto del arranque es lo que mandó a
+            // trece sub-agentes a arreglar lo que ya estaba hecho ({@see self::declaredNow()}).
+            $this->declaredNow(),
             $this->root,
             $this->installer,
             $this->safety,
@@ -214,6 +217,39 @@ final readonly class PluginOperations
         );
 
         if ($this->root !== null) {
+            // REGISTRAR ES DECLARAR QUÉ ARRANCA, y por eso lo autoriza la INTENCIÓN y no la capacidad.
+            //
+            // `config/plugins.php` se lee en un diff a propósito: qué corre en una app es una decisión
+            // versionada. Lo que esa propiedad protege NO es que la teclee una persona —es que la
+            // decisión quede escrita y legible—, y una operación gateada la deja igual de escrita: el
+            // commit la muestra igual.
+            //
+            // Lo que decide si ESTA llamada procede es si quien pidió el trabajo pidió esto: con
+            // `namedTarget: 'name'`, un plugin que la petición no nombra no se registra, se pregunta.
+            // «Escribe el plugin Hola y verifica» contiene la consecuencia —verificar exige que
+            // arranque— y pasa; «haz algo con los plugins» no la contiene, y escala al humano.
+            //
+            // El miedo que el docblock de la plantilla nombra —«un plugin que se instala solo desde la
+            // red»— queda fuera por construcción: sólo se registran clases que YA existen en el árbol
+            // de la app. Un paquete de `vendor/` no entra por aquí; ése es el camino de
+            // `capabilities:enable`, que además pasa por el verificador.
+            $operations[] = new Operation(
+                name: 'plugins.register',
+                description: 'Declare a plugin that already exists in this app so the kernel boots it. '
+                    . 'Only for plugin classes already scaffolded under the app tree — never a vendor package.',
+                handler: fn (array $input): array => $this->register($input),
+                inputSchema: $this->nameSchema(),
+                mutating: true,
+                scopes: ['plugins:write'],
+                // La ruta se declara como en sus hermanas — para que el proyector no invente una— y
+                // NO es una decisión de exposición: qué sale por HTTP lo nombra `config/http.php`,
+                // que por default no nombra ninguna. Ésta es de las que no conviene publicar: hace
+                // que una clase arranque en cada request, y eso pertenece a quien ya está en la
+                // máquina, no a quien alcanza el puerto.
+                path: '/plugins/register',
+                namedTarget: 'name',
+            );
+
             $operations[] = new Operation(
                 name: 'plugins.verify',
                 description: "Whether a plugin's milpa.json exists, validates, and matches its attribute.",
@@ -360,6 +396,68 @@ final readonly class PluginOperations
      *
      * @return array<string, PluginRecord>
      */
+    /**
+     * Lo declarado AHORA, no lo que se declaró al arrancar.
+     *
+     * ── POR QUÉ SE VUELVE A LEER ────────────────────────────────────────────────────────────────
+     *
+     * `$declared` llega en el constructor, o sea en el arranque. Mientras nada pudiera cambiar esa
+     * lista dentro de un proceso, la foto y el estado vigente coincidían siempre y la diferencia era
+     * invisible. Desde que existe `plugins.register` dejó de serlo — y el costo quedó medido:
+     *
+     * De 32 corridas delegadas (Q-P19-W), 13 se dispararon hasta agotar su techo y **12 de esas 13**
+     * llamaron `plugins.verify`, que falló catorce veces con «no existe el plugin» **sobre el plugin
+     * que el sub-agente acababa de registrar con éxito en el mismo turno**. Un turno del agente es UN
+     * proceso: registraba, preguntaba, y el sistema le contestaba que no existía lo que él acababa de
+     * crear. El bucle no era del modelo — era la respuesta correcta a una contradicción.
+     *
+     * Es la misma clase que Q-P20-B midió en el catálogo del agente: una foto traída una vez no
+     * redirige conducta; hay que reproyectar. La doctrina ya estaba escrita; faltaba aplicarla aquí.
+     *
+     * ── LA UNIÓN, Y NO EL REEMPLAZO ─────────────────────────────────────────────────────────────
+     *
+     * Lo que arrancó sigue contando aunque alguien lo haya borrado del archivo a media corrida:
+     * quitarlo de la lista no lo apaga hasta el siguiente arranque, y decir que ya no está mentiría
+     * sobre lo que está corriendo AHORA. Se suman las dos, que es lo único honesto mientras una sola
+     * respuesta tenga que cubrir dos preguntas —«¿está declarado?» y «¿está corriendo?»—; separarlas
+     * es la deuda que el tablero conserva como `plugin-list-is-reprojected`.
+     *
+     * @return list<class-string>
+     */
+    private function declaredNow(): array
+    {
+        if ($this->root === null) {
+            return $this->declared;
+        }
+
+        $archivo = $this->root . '/config/plugins.php';
+        if (!is_file($archivo)) {
+            return $this->declared;
+        }
+
+        // Un archivo de configuración cuyo único trabajo es devolver un arreglo. Si devuelve otra
+        // cosa —porque su dueño le puso algo más— se conserva la foto: no saber leerlo no autoriza a
+        // inventar una lista.
+        $ahora = @require $archivo;
+        if (!\is_array($ahora)) {
+            return $this->declared;
+        }
+
+        $union = $this->declared;
+        foreach ($ahora as $clase) {
+            if (\is_string($clase) && !\in_array($clase, $union, true)) {
+                $union[] = $clase;
+            }
+        }
+
+        return $union;
+    }
+
+    /**
+     * Todo plugin que este host conoce, por nombre: lo que su registro guarda y lo que declara.
+     *
+     * @return array<string, PluginRecord>
+     */
     private function known(): array
     {
         $records = [];
@@ -367,7 +465,7 @@ final readonly class PluginOperations
             $records[$record->name] = $record;
         }
 
-        foreach ($this->declared as $class) {
+        foreach ($this->declaredNow() as $class) {
             $record = $this->recordFor($class);
             if ($record !== null && !isset($records[$record->name])) {
                 $records[$record->name] = $record;
@@ -601,6 +699,95 @@ final readonly class PluginOperations
         }
 
         return $name;
+    }
+
+    /**
+     * Agrega un plugin del árbol de esta app a `config/plugins.php`.
+     *
+     * ── LOS TRES CERROJOS, Y NINGUNO ES DECORATIVO ──────────────────────────────────────────────
+     *
+     * 1. **Sólo lo que ya existe en el árbol.** Se resuelve la clase contra `src/Plugins/<N>/<N>.php`
+     *    y si el archivo no está, no se registra. Un nombre que el modelo invente no llega a la lista.
+     * 2. **Nunca `vendor/`.** Un paquete de la red no entra por aquí; para eso está
+     *    `capabilities:enable`, que además pasa por el verificador.
+     * 3. **La forma del archivo se comprueba antes de escribir.** Si no se reconoce —porque su dueño
+     *    lo reescribió— NO se adivina: se devuelve la línea exacta para agregarla a mano. Editar a
+     *    ciegas el archivo que decide qué arranca es peor que no editarlo.
+     *
+     * @param array<string, mixed> $input
+     *
+     * @return array<string, mixed>
+     */
+    private function register(array $input): array
+    {
+        $name = $this->name($input);
+
+        if ($this->root === null) {
+            return ['ok' => false, 'error' => 'este host no declara su raíz, así que no se puede saber qué archivo editar'];
+        }
+
+        // El nombre corto basta: la convención del andamio es `src/Plugins/<N>/<N>.php` con
+        // `App\Plugins\<N>\<N>`. Un FQCN se acepta y se reduce a su última parte.
+        $corto = str_contains($name, '\\') ? (string) substr(strrchr($name, '\\') ?: '', 1) : $name;
+        if ($corto === '' || preg_match('/^[A-Z][A-Za-z0-9]*$/', $corto) !== 1) {
+            return ['ok' => false, 'error' => "«{$name}» no parece un nombre de clase de plugin"];
+        }
+
+        $archivoClase = $this->root . '/src/Plugins/' . $corto . '/' . $corto . '.php';
+        if (!is_file($archivoClase)) {
+            return [
+                'ok' => false,
+                'error' => "no existe {$archivoClase}: sólo se registran plugins que ya están en el árbol de esta app",
+                'hint' => 'ándalo primero con `make plugin ' . $corto . ' ' . $corto . '`',
+            ];
+        }
+
+        $fqcn = 'App\\Plugins\\' . $corto . '\\' . $corto;
+        $lista = $this->root . '/config/plugins.php';
+        $contenido = is_file($lista) ? (string) file_get_contents($lista) : '';
+        if ($contenido === '') {
+            return ['ok' => false, 'error' => "no se pudo leer {$lista}"];
+        }
+
+        if (str_contains($contenido, $corto . '::class')) {
+            // YA ESTABA NO ES UN ERROR, por lo mismo que en `capabilities`: quien pide dos veces
+            // recibe que ya está, no que falló — un fallo lo manda a buscar otro camino.
+            return ['ok' => true, 'plugin' => $corto, 'hint' => 'ya estaba declarado — nada que hacer'];
+        }
+
+        // La forma que se reconoce: un `return [` y un `];` al final. Si el archivo no la tiene, se
+        // dice y se entrega la línea, en vez de inventar un lugar donde meterla.
+        if (preg_match('/\n\];\s*$/', $contenido) !== 1 || !str_contains($contenido, 'return [')) {
+            return [
+                'ok' => false,
+                'error' => "no reconozco la forma de {$lista}, así que no lo edito a ciegas",
+                'add_by_hand' => ['use ' . $fqcn . ';', '    ' . $corto . '::class,'],
+            ];
+        }
+
+        $conUse = preg_replace(
+            '/^(declare\(strict_types=1\);\n)/m',
+            "$1\nuse " . $fqcn . ";\n",
+            $contenido,
+            1,
+        ) ?? $contenido;
+        // Si no hubo dónde poner el `use`, el FQCN va completo en la lista: sigue siendo válido y no
+        // deja el archivo a medias.
+        $entrada = $conUse === $contenido ? '    \\' . $fqcn . '::class,' : '    ' . $corto . '::class,';
+        $nuevo = (string) preg_replace('/\n\];\s*$/', "\n" . $entrada . "\n];\n", $conUse, 1);
+
+        if ($nuevo === $conUse || file_put_contents($lista, $nuevo) === false) {
+            return ['ok' => false, 'error' => "no se pudo escribir {$lista}", 'add_by_hand' => [$entrada]];
+        }
+
+        return [
+            'ok' => true,
+            'plugin' => $corto,
+            'declared_in' => 'config/plugins.php',
+            // QUE HAYA QUEDADO ESCRITO NO ES QUE ARRANQUE, y decirlo es la diferencia entre un
+            // resultado y una promesa: el kernel lo bota en la siguiente corrida, no en ésta.
+            'hint' => 'arranca desde el siguiente comando o request — corre `plugins.list` para verlo',
+        ];
     }
 
     private function mustFind(string $name): PluginRecord

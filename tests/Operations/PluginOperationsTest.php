@@ -141,10 +141,22 @@ final class PluginOperationsTest extends TestCase
         $sinRaiz = array_keys($this->operations());
         self::assertNotContains('plugins.verify', $sinRaiz);
         self::assertNotContains('plugins.lock', $sinRaiz);
+        // `register` también: sin raíz no hay `config/plugins.php` que editar, y ofrecer un botón que
+        // truena al apretarlo es lo que esta condición existe para evitar.
+        self::assertNotContains('plugins.register', $sinRaiz);
 
         $conRaiz = array_keys($this->operationsWithRoot(sys_get_temp_dir()));
         self::assertContains('plugins.verify', $conRaiz);
         self::assertContains('plugins.lock', $conRaiz);
+        self::assertContains('plugins.register', $conRaiz);
+    }
+
+    /** Y las que aparecen con raíz también declaran su ruta: el proyector no inventa ninguna. */
+    public function testEveryRootOperationDeclaresAnHttpPathToo(): void
+    {
+        foreach ($this->operationsWithRoot(sys_get_temp_dir()) as $name => $operation) {
+            self::assertNotNull($operation->path, "{$name} has no path, so the HTTP projector has to invent one.");
+        }
     }
 
     public function testReadingIsNotMutatingAndWritingIs(): void
@@ -549,6 +561,158 @@ final class PluginOperationsTest extends TestCase
                 return $this->removeResult ?? PluginRemoveResult::success($pluginName, dataKept: $keepData);
             }
         };
+    }
+
+    // ── plugins.register ────────────────────────────────────────────────────────────────────────
+    //
+    // Lo que se prueba aquí no es que sepa escribir un archivo: es que se NIEGUE en los tres casos
+    // donde escribir sería peor que no hacerlo — un plugin que no existe, un archivo cuya forma no
+    // reconoce, y una raíz que nadie declaró.
+
+    /** Una app de mentiras con su `config/plugins.php` y, si se pide, un plugin ya andamiado. */
+    private function appConPlugin(?string $plugin): string
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-register-' . bin2hex(random_bytes(4));
+        mkdir($raiz . '/config', 0o775, true);
+        file_put_contents($raiz . '/config/plugins.php', <<<'PHP'
+            <?php
+
+            declare(strict_types=1);
+
+            use Milpa\Plugin\Operations\PluginManagementPlugin;
+
+            /**
+             * Los plugins que esta app arranca.
+             *
+             * @return list<class-string>
+             */
+            return [
+                PluginManagementPlugin::class,
+            ];
+
+            PHP);
+
+        if ($plugin !== null) {
+            mkdir($raiz . '/src/Plugins/' . $plugin, 0o775, true);
+            file_put_contents($raiz . '/src/Plugins/' . $plugin . '/' . $plugin . '.php', "<?php\n");
+        }
+
+        return $raiz;
+    }
+
+    /** @param array<string, mixed> $input @return array<string, mixed> */
+    private function registrar(string $raiz, array $input): array
+    {
+        $op = $this->operationsWithRoot($raiz)['plugins.register'] ?? null;
+        self::assertNotNull($op, 'la operación existe');
+
+        /** @var array<string, mixed> $r */
+        $r = ($op->handler)($input);
+
+        return $r;
+    }
+
+    /** Registra un plugin del árbol: la clase entra a la lista y el `use` con ella. */
+    public function testItDeclaresAScaffoldedPluginSoTheKernelBootsIt(): void
+    {
+        $raiz = $this->appConPlugin('HolaPlugin');
+
+        $r = $this->registrar($raiz, ['name' => 'HolaPlugin']);
+
+        self::assertTrue($r['ok']);
+        $lista = (string) file_get_contents($raiz . '/config/plugins.php');
+        self::assertStringContainsString('use App\Plugins\HolaPlugin\HolaPlugin;', $lista);
+        self::assertStringContainsString('HolaPlugin::class,', $lista);
+        self::assertStringContainsString('PluginManagementPlugin::class,', $lista, 'y lo que ya estaba sigue');
+        // QUE QUEDE ESCRITO NO ES QUE ARRANQUE, y el resultado no lo confunde.
+        self::assertStringContainsString('siguiente comando', (string) $r['hint']);
+    }
+
+    /** El contrato de intención viaja en la operación: sin él, esto sería un cheque en blanco. */
+    public function testRegisteringCarriesTheIntentContract(): void
+    {
+        $op = $this->operationsWithRoot(sys_get_temp_dir())['plugins.register'];
+
+        self::assertSame('name', $op->namedTarget, 'el plugin lo tiene que haber nombrado quien lo pidió');
+        self::assertTrue($op->mutating, 'y pasa por la compuerta como todo lo que cambia algo');
+    }
+
+    /** Un plugin que no está en el árbol NO se registra — aunque el nombre suene bien. */
+    public function testAPluginThatIsNotInTheTreeIsRefused(): void
+    {
+        $raiz = $this->appConPlugin(null);
+
+        $r = $this->registrar($raiz, ['name' => 'NoExiste']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('sólo se registran plugins que ya están', (string) $r['error']);
+        self::assertStringNotContainsString('NoExiste', (string) file_get_contents($raiz . '/config/plugins.php'));
+    }
+
+    /** Pedirlo dos veces dice que ya estaba, y no duplica la línea. */
+    public function testAskingTwiceSaysItIsAlreadyThere(): void
+    {
+        $raiz = $this->appConPlugin('HolaPlugin');
+        $this->registrar($raiz, ['name' => 'HolaPlugin']);
+
+        $r = $this->registrar($raiz, ['name' => 'HolaPlugin']);
+
+        self::assertTrue($r['ok']);
+        self::assertStringContainsString('ya estaba', (string) $r['hint']);
+        self::assertSame(1, substr_count((string) file_get_contents($raiz . '/config/plugins.php'), 'HolaPlugin::class,'));
+    }
+
+    /**
+     * LO QUE SE REGISTRA EXISTE EN EL MISMO PROCESO — la foto contra el estado vigente (Q-P19-W).
+     *
+     * Medido en 32 streams: de 13 corridas delegadas que se dispararon, 12 llamaron `plugins_verify`
+     * y éste falló 14 veces con «no existe el plugin» **sobre el plugin que el hijo acababa de
+     * registrar con éxito en el mismo turno**. La causa era que `$declared` se recibía en el
+     * constructor —o sea en el arranque— y un turno del agente es UN proceso.
+     *
+     * El bucle no era del modelo: es la respuesta correcta a una contradicción del sistema. Se le
+     * decía «registrado ✓» y «no existe ✗» en dos llamadas seguidas.
+     */
+    public function testWhatWasJustDeclaredExistsInTheSameProcess(): void
+    {
+        $raiz = $this->appConPlugin(null);
+        $ops = $this->operationsWithRoot($raiz);
+
+        $nombres = static fn (array $r): array => array_column($r['plugins'] ?? [], 'name');
+        self::assertNotContains('DeclaredFixture', $nombres(($ops['plugins.list']->handler)([])), 'antes no está');
+
+        // Alguien declara el plugin a media corrida — que es exactamente lo que `plugins.register`
+        // hace. El archivo cambia; la instancia de las operaciones NO se reconstruye.
+        file_put_contents($raiz . '/config/plugins.php', "<?php\n\ndeclare(strict_types=1);\n\nreturn [\n    \\"
+            . DeclaredFixturePlugin::class . "::class,\n];\n");
+
+        // LA MISMA INSTANCIA Y EL MISMO PROCESO, sin rebootear nada: es lo que el agente tiene
+        // enfrente dentro de una vuelta, y es donde el defecto vive. Si esto sólo funcionara
+        // reconstruyendo las operaciones, seguiría roto exactamente donde se midió.
+        self::assertContains(
+            'DeclaredFixture',
+            $nombres(($ops['plugins.list']->handler)([])),
+            'lo declarado AHORA se ve ahora, no en el siguiente arranque',
+        );
+        self::assertTrue(($ops['plugins.verify']->handler)(['plugin' => 'DeclaredFixture'])['ok']);
+    }
+
+    /**
+     * UN ARCHIVO QUE NO SE RECONOCE NO SE EDITA A CIEGAS: se entrega la línea.
+     *
+     * Es el archivo que decide qué arranca la app. Adivinar dónde meter una línea en algo que su
+     * dueño reescribió puede dejarlo sin arrancar, y eso es peor que no haberlo tocado.
+     */
+    public function testAnUnrecognisedFileIsNotEditedBlindly(): void
+    {
+        $raiz = $this->appConPlugin('HolaPlugin');
+        file_put_contents($raiz . '/config/plugins.php', "<?php\nreturn array_filter(cargar());\n");
+
+        $r = $this->registrar($raiz, ['name' => 'HolaPlugin']);
+
+        self::assertFalse($r['ok']);
+        self::assertStringContainsString('no reconozco la forma', (string) $r['error']);
+        self::assertNotEmpty($r['add_by_hand'], 'con la línea exacta para ponerla a mano');
     }
 }
 
