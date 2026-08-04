@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/getmilpa/plugin/compare/v0.8.0...v0.9.0) (2026-08-04)
+
+
+### Features
+
+* **plugins:** plugins.register — declarar un plugin andamiado, con el objeto nombrado por el humano ([eb547b2](https://github.com/getmilpa/plugin/commit/eb547b27e8aa74f26b8c275850d70a3c0979795a))
+
 ## [0.8.0](https://github.com/getmilpa/plugin/compare/v0.7.2...v0.8.0) (2026-08-02)
 
 
