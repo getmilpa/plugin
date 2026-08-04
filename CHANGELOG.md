@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/getmilpa/plugin/compare/v0.9.0...v0.9.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **deps:** admite milpa/resolver ^0.6, y no llama lo que el pin permite que falte ([01493a3](https://github.com/getmilpa/plugin/commit/01493a3646a2c6f7e23599dccd33e4e23715b17e))
+
 ## [0.9.0](https://github.com/getmilpa/plugin/compare/v0.8.0...v0.9.0) (2026-08-04)
 
 
