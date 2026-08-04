@@ -106,21 +106,81 @@ final class MetadataGraphResolver
      *                                   que no se puede leer, y confundirlos mandaría a alguien a
      *                                   buscar un proveedor que no era el problema
      */
-    public function diagnose(array $metadataArrays): ResolutionReport
+    public function diagnose(array $metadataArrays, ?string $raiz = null, string $cargador = 'Milpa\\Resolver\\Ingest\\InstalledCapabilityLoader'): ResolutionReport
     {
-        if ($metadataArrays === []) {
+        // EL PERFIL DEL HOST, SI SE DICE DÓNDE MIRAR.
+        //
+        // Sin `$raiz` esto diagnostica sólo el grafo de plugins contra un perfil permisivo, que es lo
+        // que hacía siempre — y por eso `coa repair` corría sobre una app caída y contestaba «el
+        // diagnóstico no recomienda instalar nada»: lo que la había tumbado era una
+        // `requiredCapabilities` del hostProfile, que el ARRANQUE sí enforza y esto no leía.
+        //
+        // La herramienta que repara corría sobre la app rota y no podía ver lo que la rompió. Se pide
+        // la raíz y no el perfil ya cargado porque de ahí salen las DOS cosas que hacen falta —el
+        // `milpa.json` y el `vendor/`— y pedirlas por separado serían dos preguntas con una respuesta.
+        $perfil = $raiz === null ? null : self::perfilDe($raiz);
+        // ── LA CLASE PUEDE NO ESTAR, Y EL PIN LO PERMITE ────────────────────────────────────────
+        //
+        // Este paquete declara `milpa/resolver: ^0.5.2 || ^0.6` e `InstalledCapabilityLoader` sólo
+        // existe en 0.6. Llamarla sin comprobar es afirmar una versión que el propio pin no exige — y
+        // con 0.5 instalado reventaba con `Class not found` a media resolución del grafo, que es el
+        // arranque entero.
+        //
+        // Lo cazó la ceremonia de release corriendo la suite contra el paquete instalado desde
+        // Packagist: en el monorepo la clase siempre está, así que aquí nunca habría fallado.
+        //
+        // Sin ella se resuelve como antes —sólo el grafo de plugins— que es menos, y es honesto.
+        // `$cargador` es la costura de prueba —igual que `$vendor` en el propio loader—: la rama
+        // negativa de esta guarda NO se puede ejercer en el monorepo, donde la clase siempre está, y
+        // una guarda que no se puede probar es una que nadie sabe si funciona. Lo que un test no puede
+        // arreglar, lo inyecta, y lo que inyecta va nombrado.
+        $provisiones = $raiz !== null && class_exists($cargador)
+            ? $cargador::fromVendor($raiz . '/vendor')
+            : [];
+
+        if ($metadataArrays === [] && $perfil === null) {
             // Una app sin plugins tiene un grafo que cierra por vacío, no uno roto. Contestar
             // `Blocked` aquí mandaría a alguien a buscar un proveedor faltante en una lista vacía.
+            //
+            // CON perfil ya no se puede atajar: una app sin plugins que declara necesitar algo tiene
+            // un grafo abierto, y ése es justamente el caso que hay que poder diagnosticar.
             return new ResolutionReport(status: ResolutionStatus::Valid);
         }
 
-        return $this->resolveRecords($metadataArrays);
+        return $this->resolveRecords($metadataArrays, $perfil, $provisiones);
+    }
+
+    /** El `hostProfile` del `milpa.json` de esta app, o `null` si no hay uno legible. */
+    private static function perfilDe(string $raiz): ?HostProfile
+    {
+        $archivo = $raiz . '/milpa.json';
+        if (!is_file($archivo)) {
+            return null;
+        }
+
+        $json = json_decode((string) file_get_contents($archivo), true);
+        if (!\is_array($json) || !\is_array($json['hostProfile'] ?? null)) {
+            return null;
+        }
+
+        try {
+            return HostProfile::fromArray($json['hostProfile']);
+        } catch (\Throwable) {
+            // Un perfil malformado NO se inventa ni se ignora en silencio: se diagnostica sin él, que
+            // es lo mismo que hacía antes de que esto existiera. Inventar un perfil sería peor que no
+            // tenerlo.
+            return null;
+        }
     }
 
     /**
      * @param list<array<string, mixed>> $metadataArrays
      */
-    private function resolveRecords(array $metadataArrays): ResolutionReport
+    /**
+     * @param list<array<string, mixed>>                               $metadataArrays
+     * @param list<\Milpa\ValueObjects\Capability\CapabilityProvision> $provisiones
+     */
+    private function resolveRecords(array $metadataArrays, ?HostProfile $perfil = null, array $provisiones = []): ResolutionReport
     {
         $loader = new AttributeLoader();
         $manifests = [];
@@ -143,10 +203,10 @@ final class MetadataGraphResolver
         }
 
         return (new GraphResolver())->resolve(new ResolutionInput(
-            hostProfile: new HostProfile(name: 'host', version: '0.0.0', allowedLegacyContracts: ['*']),
+            hostProfile: $perfil ?? new HostProfile(name: 'host', version: '0.0.0', allowedLegacyContracts: ['*']),
             versionManifests: $manifests,
             contractManifests: [],
-            capabilityProvisions: [],
+            capabilityProvisions: $provisiones,
             capabilityRequirements: $requirements,
         ));
     }

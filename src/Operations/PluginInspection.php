@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace Milpa\Plugin\Operations;
 
+use Milpa\Resolver\Report\LearnableArchitectureError;
 use Milpa\Attributes\PluginMetadata;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
@@ -161,6 +162,8 @@ final readonly class PluginInspection
                 'plugins' => [],
                 'capabilities' => [],
                 'unsatisfied' => [],
+                'degraded' => [],
+                'recommended' => [],
                 'baseline' => $this->sinceBaseline([]),
             ];
         }
@@ -181,6 +184,17 @@ final readonly class PluginInspection
             foreach ($pide as $id) {
                 $indice[$id] ??= ['providedBy' => [], 'requiredBy' => []];
                 $indice[$id]['requiredBy'][] = $nombre;
+            }
+            // LO SUGERIDO TAMBIÉN ENTRA AL ÍNDICE, y hasta hoy no entraba.
+            //
+            // Una capacidad SUGERIDA sin proveedor no abre el grafo —la app arranca degradada— y por
+            // eso era invisible aquí: no la pedía nadie, así que no era huérfana. Pero es exactamente
+            // el estado que un agente puede arreglar, y no podía verlo. Un reporte que sólo muestra lo
+            // que ya rompió deja fuera todo lo que se puede arreglar antes de que rompa.
+            foreach ($this->capabilityIds($activo['suggests'] ?? []) as $id) {
+                $indice[$id] ??= ['providedBy' => [], 'requiredBy' => []];
+                $indice[$id]['suggestedBy'] ??= [];
+                $indice[$id]['suggestedBy'][] = $nombre;
             }
 
             $plugins[] = [
@@ -247,16 +261,42 @@ final readonly class PluginInspection
 
         $capacidades = [];
         $huerfanas = [];
+        $degradadas = [];
+        $recomendadas = [];
         foreach ($indice as $id => $lados) {
             $satisfecha = $lados['providedBy'] !== [];
+            $sugeridaPor = $lados['suggestedBy'] ?? [];
             $capacidades[] = [
                 'id' => $id,
                 'providedBy' => $lados['providedBy'],
                 'requiredBy' => $lados['requiredBy'],
+                'suggestedBy' => $sugeridaPor,
                 'satisfied' => $satisfecha,
             ];
-            if (!$satisfecha && $lados['requiredBy'] !== []) {
+            if ($satisfecha) {
+                continue;
+            }
+            if ($lados['requiredBy'] !== []) {
                 $huerfanas[] = $id;
+            } elseif ($sugeridaPor !== []) {
+                $degradadas[] = $id;
+            } else {
+                continue;
+            }
+
+            // ── DE DÓNDE SE SACA, Y NO SÓLO QUÉ FALTA ───────────────────────────────────────────
+            //
+            // `coa doctor` ya imprimía esta acción y este reporte no la traía — así que el agente veía
+            // el hueco y no podía cerrarlo: `repair` sólo abre para lo que el diagnóstico nombra, y el
+            // diagnóstico que el agente PUEDE llamar no nombraba nada. La puerta le quedaba cerrada
+            // por construcción y sólo la habría abierto por suerte.
+            //
+            // La tabla es la MISMA que usa el doctor, no una copia: dos mapas de capacidad→paquete
+            // serían dos que pueden discrepar, y discreparían el día que alguien publique un paquete
+            // nuevo y actualice sólo uno.
+            $paquete = LearnableArchitectureError::KNOWN_PACKAGES[$id] ?? null;
+            if ($paquete !== null) {
+                $recomendadas[] = ['type' => 'install-package', 'package' => $paquete, 'for' => $id];
             }
         }
 
@@ -268,6 +308,11 @@ final readonly class PluginInspection
             'plugins' => $plugins,
             'capabilities' => $capacidades,
             'unsatisfied' => $huerfanas,
+            // LO QUE NO ROMPE Y SE PUEDE ARREGLAR. Aparte de `unsatisfied` porque son dos estados
+            // distintos y mezclarlos volvería urgente lo que no lo es — o peor, cotidiano lo que sí.
+            'degraded' => $degradadas,
+            // Y QUÉ HACER AL RESPECTO, en la forma que `repair` acepta sin que nadie interprete nada.
+            'recommended' => $recomendadas,
             // `null` significa «nadie pudo decir desde cuándo miras», y se distingue de `unchanged:
             // true`, que afirma que no ha cambiado nada. Confundir las dos es exactamente el error
             // que este campo existe para no cometer.

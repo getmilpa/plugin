@@ -200,4 +200,83 @@ final class MetadataGraphResolverTest extends TestCase
         self::assertSame(ResolutionStatus::Valid, $reporte->status);
         self::assertSame([], $reporte->errors);
     }
+
+    /**
+     * SIN EL CARGADOR, EL GRAFO SE RESUELVE IGUAL — sólo con menos.
+     *
+     * Este paquete declara `milpa/resolver: ^0.5.2 || ^0.6` e `InstalledCapabilityLoader` sólo existe
+     * en 0.6. Llamarla sin comprobar afirmaba una versión que el pin no exige, y con 0.5 instalado
+     * reventaba con `Class not found` a media resolución — el arranque entero.
+     *
+     * Lo cazó la ceremonia de release contra el paquete de Packagist; aquí la clase siempre está, así
+     * que la rama se ejerce inyectando un nombre que no existe. Una guarda que no se puede probar es
+     * una que nadie sabe si funciona.
+     */
+    public function testItResolvesWithoutTheCapabilityLoader(): void
+    {
+        $reporte = (new MetadataGraphResolver())->diagnose(
+            [],
+            sys_get_temp_dir(),
+            'Milpa\\Resolver\\Ingest\\NoExisteEsteCargador',
+        );
+
+        self::assertSame([], $reporte->errors, 'sin provisiones el grafo cierra por vacío, no revienta');
+    }
+
+    /** Sin `milpa.json` se diagnostica sin perfil: es lo que hacía siempre, no un error. */
+    public function testWithoutAHostManifestItResolvesWithoutAProfile(): void
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-sin-manifiesto-' . bin2hex(random_bytes(4));
+        mkdir($raiz, 0o775, true);
+
+        $reporte = (new MetadataGraphResolver())->diagnose([], $raiz, 'NoExiste\\Cargador');
+
+        self::assertSame([], $reporte->errors);
+        @rmdir($raiz);
+    }
+
+    /**
+     * UN PERFIL MALFORMADO NO SE INVENTA NI SE IGNORA EN SILENCIO: se diagnostica sin él, que es lo
+     * que hacía antes de que el perfil se leyera. Inventar uno sería peor que no tenerlo.
+     */
+    public function testAMalformedHostProfileIsDiagnosedWithoutIt(): void
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-perfil-roto-' . bin2hex(random_bytes(4));
+        mkdir($raiz, 0o775, true);
+        file_put_contents($raiz . '/milpa.json', '{"hostProfile": {"name": ""}}');
+
+        $reporte = (new MetadataGraphResolver())->diagnose([], $raiz, 'NoExiste\\Cargador');
+
+        self::assertSame([], $reporte->errors);
+        @unlink($raiz . '/milpa.json');
+        @rmdir($raiz);
+    }
+
+    /** Y un `milpa.json` que ni siquiera es JSON tampoco tumba el diagnóstico. */
+    public function testAManifestThatIsNotJsonDoesNotBreakTheDiagnosis(): void
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-json-roto-' . bin2hex(random_bytes(4));
+        mkdir($raiz, 0o775, true);
+        file_put_contents($raiz . '/milpa.json', 'esto no es json');
+
+        self::assertSame([], (new MetadataGraphResolver())->diagnose([], $raiz, 'NoExiste\\Cargador')->errors);
+        @unlink($raiz . '/milpa.json');
+        @rmdir($raiz);
+    }
+
+    /** Con perfil, una app SIN plugins que declara necesitar algo tiene el grafo abierto. */
+    public function testAnAppWithNoPluginsButARequirementHasAnOpenGraph(): void
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-perfil-' . bin2hex(random_bytes(4));
+        mkdir($raiz, 0o775, true);
+        file_put_contents($raiz . '/milpa.json', json_encode([
+            'hostProfile' => ['name' => 'app', 'version' => '1.0', 'requiredCapabilities' => ['no.la.provee.nadie']],
+        ], JSON_THROW_ON_ERROR));
+
+        $reporte = (new MetadataGraphResolver())->diagnose([], $raiz, 'NoExiste\\Cargador');
+
+        self::assertNotSame([], $reporte->errors, 'el atajo de «sin plugins cierra por vacío» no aplica con perfil');
+        @unlink($raiz . '/milpa.json');
+        @rmdir($raiz);
+    }
 }

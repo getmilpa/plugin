@@ -806,6 +806,38 @@ final class PluginInspectionTest extends TestCase
         self::assertSame([], $porNombre['ProveedorFixture']['requires'], 'una lista vacía, no un guion');
         self::assertSame(['Acme\\Fixtures\\CosaContract'], $porNombre['ConsumidorFixture']['requires']);
     }
+
+    /**
+     * LO SUGERIDO SIN PROVEEDOR SE VE, Y SE DICE DE DÓNDE SACARLO.
+     *
+     * Una capacidad `suggests` sin proveedor NO abre el grafo —la app arranca degradada— y por eso
+     * era invisible aquí: no la pedía nadie, así que no contaba como huérfana. Pero es justo el estado
+     * que un agente puede arreglar, y no podía verlo: `repair` sólo abre para lo que el diagnóstico
+     * nombra, y este reporte no nombraba nada.
+     *
+     * Se separa de `unsatisfied` porque son dos estados distintos: mezclarlos volvería urgente lo que
+     * no lo es — o peor, cotidiano lo que sí.
+     */
+    public function testASuggestedCapabilityWithNoProviderIsDegradedAndRecommends(): void
+    {
+        $r = $this->inspection([SugerenteFixture::class])->architecture([]);
+
+        self::assertTrue($r['ok'], 'sugerir algo que falta no abre el grafo');
+        self::assertSame([], $r['unsatisfied']);
+        self::assertSame(['surface.mcp'], $r['degraded']);
+        // LA RECOMENDACIÓN SALE DE LA TABLA DEL RESOLVER, que es otro paquete y otra versión: este
+        // pin admite `^0.5.2 || ^0.6` y sólo 0.6 conoce `surface.mcp`. Afirmar el valor exacto sería
+        // afirmar algo que este paquete NO controla — falló así en la ceremonia de release, contra el
+        // resolver de Packagist.
+        //
+        // Lo que sí es de aquí es la FORMA: si hay recomendación, viene en el shape que `repair`
+        // acepta sin interpretar nada.
+        foreach ($r['recommended'] as $accion) {
+            self::assertSame('install-package', $accion['type']);
+            self::assertSame('surface.mcp', $accion['for']);
+            self::assertIsString($accion['package']);
+        }
+    }
 }
 
 /** Provee la capacidad que el consumidor pide. */
@@ -875,5 +907,18 @@ final class ProveedorMalformadoFixture
     requires: [['id' => 'acme.cosa.v1', 'interface' => 'Acme\\Fixtures\\CosaContract', 'contractVersion' => '^1.0']],
 )]
 final class ConsumidorRicoFixture
+{
+}
+
+/** Sugiere una capacidad de distribución que nadie provee: la app arranca degradada. */
+#[PluginMetadata(
+    version: '1.0.0',
+    author: 'Acme',
+    site: 'https://example.com',
+    name: 'SugerenteFixture',
+    type: 'Service',
+    suggests: ['surface.mcp'],
+)]
+final class SugerenteFixture
 {
 }

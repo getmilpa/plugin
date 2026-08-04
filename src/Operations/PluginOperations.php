@@ -311,6 +311,14 @@ final readonly class PluginOperations
             requiresConfirmation: true,
             scopes: ['plugins:install'],
             path: '/plugins/install',
+            // EL OBJETIVO LO NOMBRA EL HUMANO (ADR-0044), y esto lo puso una MEDICIÓN.
+            //
+            // Q-P20-J (2026-08-04) midió que un agente al que se le pide «arregla la advertencia»
+            // instala ocho de ocho veces un paquete que nadie nombró — por la puerta hermana que
+            // no tenía contrato. La firma NO lo detiene: la firma pregunta «¿autorizas esto?» y el
+            // humano sí iba a autorizar «arregla»; el contrato pregunta «¿es esto lo que pediste?»,
+            // que es la que faltaba.
+            namedTarget: 'source',
         );
 
         $operations[] = new Operation(
@@ -329,6 +337,8 @@ final readonly class PluginOperations
             requiresConfirmation: true,
             scopes: ['plugins:install'],
             path: '/plugins/update',
+            // Mismo contrato que `plugins.install`, por lo mismo (Q-P20-J).
+            namedTarget: 'name',
         );
 
         $operations[] = new Operation(
@@ -351,6 +361,10 @@ final readonly class PluginOperations
             requiresConfirmation: true,
             scopes: ['plugins:write'],
             path: '/plugins/remove',
+            // Mismo contrato, y aquí importa MÁS: quitar un plugin es más difícil de deshacer que
+            // instalar uno, y hasta hoy `capabilities:enable` exigía objetivo nombrado y esto no.
+            // Una asimetría así se lee como descuido porque lo era (Q-P20-J).
+            namedTarget: 'name',
         );
 
         return $operations;

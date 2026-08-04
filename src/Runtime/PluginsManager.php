@@ -462,9 +462,43 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
             hostProfile: $hostProfile,
             versionManifests: $manifests,
             contractManifests: [],
-            capabilityProvisions: [],
+            // WHAT THE INSTALLED DISTRIBUTIONS PROVIDE, at boot (P17.4).
+            //
+            // This was `[]`, so the boot graph only ever saw plugins. A host that declared a
+            // requirement on a distribution capability —`tool.registry`, say— got MILPA_CAPABILITY_
+            // MISSING **even with the package installed**, because nothing ever told the graph the
+            // package was there. That made the whole capability→package recommendation unusable in
+            // the one place it matters: a host could not declare what it needs from a distribution
+            // without breaking its own boot.
+            //
+            // The vendor root is derived from the host manifest's directory: they are the same app,
+            // and asking the caller for a second path is asking two questions with one answer.
+            capabilityProvisions: $this->installedProvisions(),
             capabilityRequirements: $requirements,
         ));
+    }
+
+    /**
+     * The provisions of the installed distributions, or none when this host has no manifest to
+     * locate them from.
+     *
+     * @return list<\Milpa\ValueObjects\Capability\CapabilityProvision>
+     */
+    private function installedProvisions(string $cargador = 'Milpa\\Resolver\\Ingest\\InstalledCapabilityLoader'): array
+    {
+        $manifiesto = $this->config->hostManifestPath;
+        if (!is_string($manifiesto) || $manifiesto === '') {
+            return [];
+        }
+
+        // La clase puede no estar: este paquete declara `milpa/resolver: ^0.5.2 || ^0.6` y sólo existe
+        // en 0.6. Llamarla sin comprobar afirma una versión que el pin no exige — y con 0.5 instalado
+        // reventaría en el arranque, que es donde menos se puede.
+        if (!class_exists($cargador)) {
+            return [];
+        }
+
+        return $cargador::fromVendor(\dirname($manifiesto) . '/vendor');
     }
 
     /**
