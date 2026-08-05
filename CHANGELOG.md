@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/getmilpa/plugin/compare/v0.9.1...v0.10.0) (2026-08-05)
+
+
+### Features
+
+* **supply:** un claim de paquete no es una clasificación, y las 15 operaciones declaran su efecto ([60dcbf9](https://github.com/getmilpa/plugin/commit/60dcbf9117ca9634b15c5069829da3b473d68a53))
+
 ## [0.9.1](https://github.com/getmilpa/plugin/compare/v0.9.0...v0.9.1) (2026-08-04)
 
 
