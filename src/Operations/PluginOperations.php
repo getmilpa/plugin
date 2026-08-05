@@ -16,6 +16,11 @@ declare(strict_types=1);
 namespace Milpa\Plugin\Operations;
 
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Command\Effect\Authority;
+use Milpa\Command\Effect\EffectProfile;
+use Milpa\Command\Effect\Externality;
+use Milpa\Command\Effect\Mutation;
+use Milpa\Command\Effect\Reversibility;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
@@ -108,6 +113,13 @@ final readonly class PluginOperations
         $operations = [
             new Operation(
                 name: 'plugins.list',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'List every installed plugin with its version, type and whether it boots.',
                 handler: fn (array $input): array => $this->list($input),
                 inputSchema: [
@@ -125,6 +137,13 @@ final readonly class PluginOperations
             ),
             new Operation(
                 name: 'plugins.show',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: 'Everything the registry knows about one plugin.',
                 handler: fn (array $input): array => $this->show($input),
                 inputSchema: $this->nameSchema(),
@@ -138,6 +157,16 @@ final readonly class PluginOperations
             // pregunta.
             new Operation(
                 name: 'plugins.enable',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // A REAL, TESTED INVERSE: `enable` and `disable` are literally the same method called with
+                    // true and false. This is the only kind of evidence that earns `Guaranteed`, which is the
+                    // only level that buys an operation less scrutiny.
+                    Reversibility::Guaranteed,
+                    Authority::WriteAsUser,
+                    rollbackContract: 'plugins.disable',
+                ),
                 description: 'Turn a plugin on: it boots from the next request or command.',
                 handler: fn (array $input): array => $this->setEnabled($input, true),
                 inputSchema: $this->nameSchema(),
@@ -148,6 +177,13 @@ final readonly class PluginOperations
             ),
             new Operation(
                 name: 'plugins.disable',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::WriteAsUser,
+                    rollbackContract: 'plugins.enable',
+                ),
                 description: 'Turn a plugin off without removing it or its data.',
                 handler: fn (array $input): array => $this->setEnabled($input, false),
                 inputSchema: $this->nameSchema(),
@@ -167,6 +203,15 @@ final readonly class PluginOperations
             // trabajo de quien tiene la terminal, no de quien corre dentro de él.
             new Operation(
                 name: 'plugins.disable-unsafe',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Its own description says it «may leave this host unable to boot». An app that will not boot
+                    // cannot run the operation that would put it back, so the inverse is not available when it is
+                    // needed — which is the definition of manual recovery, not of a guarantee.
+                    Reversibility::ManualRecovery,
+                    Authority::Privileged,
+                ),
                 description: 'Recovery only: turn a plugin off WITHOUT the safety evaluation. May leave this host unable to boot.',
                 handler: fn (array $input): array => $this->setEnabled($input, false, overridden: true),
                 inputSchema: $this->nameSchema(),
@@ -175,6 +220,16 @@ final readonly class PluginOperations
                 scopes: ['plugins:write'],
                 surfaces: ['cli'],
                 path: '/plugins/disable-unsafe',
+                // THE INTENT CONTRACT, on the operation whose own text says it «may leave this host
+                // unable to boot». It was missing, and the gate did not see it because this schema is
+                // built by a method: it looked for a literal `'required' => ['…`, did not find one,
+                // and concluded «no object to name» instead of «I could not look». Seven mutating
+                // operations were invisible that way.
+                //
+                // «turn off the broken plugin» names none of them, and this is precisely the one that
+                // does not allow guessing: turning off the wrong one without evaluating dependencies
+                // is how you end up with an app that no longer starts so you can try again.
+                namedTarget: 'name',
             ),
         ];
 
@@ -183,6 +238,13 @@ final readonly class PluginOperations
         // código de afuera.
         $operations[] = new Operation(
             name: 'plugins.deps',
+            effects: new EffectProfile(
+                Mutation::None,
+                Externality::None,
+                Reversibility::Guaranteed,
+                Authority::Read,
+                rollbackContract: 'nothing-to-roll-back',
+            ),
             description: 'Whether the active plugin graph resolves, and in which order they would boot.',
             handler: fn (array $input): array => $this->inspection()->deps($input),
             inputSchema: ['type' => 'object', 'properties' => []],
@@ -196,6 +258,13 @@ final readonly class PluginOperations
         // OPERA el sistema. Antes había que leer plugin por plugin y cruzarlo a mano.
         $operations[] = new Operation(
             name: 'plugins.architecture',
+            effects: new EffectProfile(
+                Mutation::None,
+                Externality::None,
+                Reversibility::Guaranteed,
+                Authority::Read,
+                rollbackContract: 'nothing-to-roll-back',
+            ),
             description: 'The capability graph as data: who provides what, who needs it, what is unsatisfied, and what breaks if you turn a plugin off.',
             handler: fn (array $input): array => $this->inspection()->architecture($input),
             inputSchema: ['type' => 'object', 'properties' => []],
@@ -205,6 +274,13 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.simulate',
+            effects: new EffectProfile(
+                Mutation::None,
+                Externality::None,
+                Reversibility::Guaranteed,
+                Authority::Read,
+                rollbackContract: 'nothing-to-roll-back',
+            ),
             description: 'What turning a plugin on would do, without turning it on.',
             handler: fn (array $input): array => $this->inspection()->simulate($input),
             inputSchema: [
@@ -235,6 +311,14 @@ final readonly class PluginOperations
             // `capabilities:enable`, que además pasa por el verificador.
             $operations[] = new Operation(
                 name: 'plugins.register',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // It changes what the kernel BOOTS. Getting it wrong is discovered on the next start, when the
+                    // operation that would undo it may no longer be reachable.
+                    Reversibility::ManualRecovery,
+                    Authority::Privileged,
+                ),
                 description: 'Declare a plugin that already exists in this app so the kernel boots it. '
                     . 'Only for plugin classes already scaffolded under the app tree — never a vendor package.',
                 handler: fn (array $input): array => $this->register($input),
@@ -252,6 +336,13 @@ final readonly class PluginOperations
 
             $operations[] = new Operation(
                 name: 'plugins.verify',
+                effects: new EffectProfile(
+                    Mutation::None,
+                    Externality::None,
+                    Reversibility::Guaranteed,
+                    Authority::Read,
+                    rollbackContract: 'nothing-to-roll-back',
+                ),
                 description: "Whether a plugin's milpa.json exists, validates, and matches its attribute.",
                 handler: fn (array $input): array => $this->inspection()->verify($input),
                 inputSchema: [
@@ -265,6 +356,14 @@ final readonly class PluginOperations
 
             $operations[] = new Operation(
                 name: 'plugins.lock',
+                effects: new EffectProfile(
+                    Mutation::Persistent,
+                    Externality::None,
+                    // Rewrites `milpa.lock` from the current registry. The previous lock is not kept anywhere by
+                    // this operation — VCS is the recovery path, and VCS is a human with a terminal.
+                    Reversibility::ManualRecovery,
+                    Authority::WriteAsUser,
+                ),
                 description: 'Regenerate milpa.lock from what the registry says is installed.',
                 handler: fn (array $input): array => $this->inspection()->lock($input),
                 inputSchema: ['type' => 'object', 'properties' => []],
@@ -283,6 +382,16 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.outdated',
+            effects: new EffectProfile(
+                Mutation::None,
+                // READS, AND STILL REACHES A THIRD PARTY: it asks a remote registry what is newer. This is
+                // exactly why externality is its own dimension and not a shade of mutation — `mutating: false`
+                // would have said «harmless» about an operation that talks to the internet.
+                Externality::ThirdParty,
+                Reversibility::Guaranteed,
+                Authority::Read,
+                rollbackContract: 'nothing-to-roll-back',
+            ),
             description: 'Which remotely-installed plugins have a newer version available.',
             handler: fn (array $input): array => $this->inspection()->outdated($input),
             inputSchema: ['type' => 'object', 'properties' => []],
@@ -292,6 +401,21 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.install',
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                // IT BRINGS CODE FROM SOMEBODY ELSE INTO THIS PROCESS — and that is exactly the route ADR-0045
+                // closes. What arrives runs with the app's own authority, sharing its memory, its container and
+                // its disk. Measured 2026-08-05: 13 of 34 packages in this family can reach network or spawn a
+                // process without going through any declared operation; a third-party one has the same power and
+                // none of the reasons to be trusted.
+                Externality::ThirdParty,
+                // `plugins.remove` exists but it is not a tested inverse of this: whatever the plugin's install
+                // hook already did to the app is not undone by deleting its directory.
+                Reversibility::ManualRecovery,
+                // The highest authority in the whole catalogue: it decides what code this app runs.
+                Authority::Privileged,
+                escalatesOn: ['source'],
+            ),
             description: 'Install a plugin from a source coordinate, e.g. "acme/mail-plugin:^2.0".',
             handler: fn (array $input): array => $this->install($input),
             inputSchema: [
@@ -323,6 +447,15 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.update',
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                // A NEW VERSION INHERITS NOTHING (GOV-11): whatever was attested was a digest, and updating
+                // replaces it. «Same name, same source» is not «same code».
+                Externality::ThirdParty,
+                Reversibility::ManualRecovery,
+                Authority::Privileged,
+                escalatesOn: ['name'],
+            ),
             description: 'Update an installed plugin to a newer version from the source it came from.',
             handler: fn (array $input): array => $this->update($input),
             inputSchema: [
@@ -343,6 +476,15 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.remove',
+            effects: new EffectProfile(
+                Mutation::Persistent,
+                Externality::None,
+                // Deleting the directory does not undo what the plugin already did to this app: rows it wrote,
+                // files it created, config it changed. Recovery is a human reading what it touched.
+                Reversibility::ManualRecovery,
+                Authority::Privileged,
+                escalatesOn: ['name'],
+            ),
             description: 'Remove an installed plugin, optionally keeping the data it wrote.',
             handler: fn (array $input): array => $this->remove($input),
             inputSchema: [
