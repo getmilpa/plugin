@@ -21,6 +21,7 @@ use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
 use Milpa\Command\Effect\Mutation;
 use Milpa\Command\Effect\Reversibility;
+use Milpa\Command\Effect\Subject;
 use Milpa\Command\Operation;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
@@ -118,6 +119,7 @@ final readonly class PluginOperations
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'List every installed plugin with its version, type and whether it boots.',
@@ -142,6 +144,7 @@ final readonly class PluginOperations
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: 'Everything the registry knows about one plugin.',
@@ -165,6 +168,7 @@ final readonly class PluginOperations
                     // only level that buys an operation less scrutiny.
                     Reversibility::Guaranteed,
                     Authority::WriteAsUser,
+                    subject: Subject::Executable,
                     rollbackContract: 'plugins.disable',
                 ),
                 description: 'Turn a plugin on: it boots from the next request or command.',
@@ -182,6 +186,7 @@ final readonly class PluginOperations
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::WriteAsUser,
+                    subject: Subject::Executable,
                     rollbackContract: 'plugins.enable',
                 ),
                 description: 'Turn a plugin off without removing it or its data.',
@@ -211,6 +216,7 @@ final readonly class PluginOperations
                     // needed — which is the definition of manual recovery, not of a guarantee.
                     Reversibility::ManualRecovery,
                     Authority::Privileged,
+                    subject: Subject::Executable,
                 ),
                 description: 'Recovery only: turn a plugin off WITHOUT the safety evaluation. May leave this host unable to boot.',
                 handler: fn (array $input): array => $this->setEnabled($input, false, overridden: true),
@@ -243,6 +249,7 @@ final readonly class PluginOperations
                 Externality::None,
                 Reversibility::Guaranteed,
                 Authority::Read,
+                subject: Subject::None,
                 rollbackContract: 'nothing-to-roll-back',
             ),
             description: 'Whether the active plugin graph resolves, and in which order they would boot.',
@@ -263,6 +270,7 @@ final readonly class PluginOperations
                 Externality::None,
                 Reversibility::Guaranteed,
                 Authority::Read,
+                subject: Subject::None,
                 rollbackContract: 'nothing-to-roll-back',
             ),
             description: 'The capability graph as data: who provides what, who needs it, what is unsatisfied, and what breaks if you turn a plugin off.',
@@ -279,6 +287,7 @@ final readonly class PluginOperations
                 Externality::None,
                 Reversibility::Guaranteed,
                 Authority::Read,
+                subject: Subject::None,
                 rollbackContract: 'nothing-to-roll-back',
             ),
             description: 'What turning a plugin on would do, without turning it on.',
@@ -318,6 +327,7 @@ final readonly class PluginOperations
                     // operation that would undo it may no longer be reachable.
                     Reversibility::ManualRecovery,
                     Authority::Privileged,
+                    subject: Subject::Executable,
                 ),
                 description: 'Declare a plugin that already exists in this app so the kernel boots it. '
                     . 'Only for plugin classes already scaffolded under the app tree — never a vendor package.',
@@ -341,6 +351,7 @@ final readonly class PluginOperations
                     Externality::None,
                     Reversibility::Guaranteed,
                     Authority::Read,
+                    subject: Subject::None,
                     rollbackContract: 'nothing-to-roll-back',
                 ),
                 description: "Whether a plugin's milpa.json exists, validates, and matches its attribute.",
@@ -363,6 +374,7 @@ final readonly class PluginOperations
                     // this operation — VCS is the recovery path, and VCS is a human with a terminal.
                     Reversibility::ManualRecovery,
                     Authority::WriteAsUser,
+                    subject: Subject::Data,
                 ),
                 description: 'Regenerate milpa.lock from what the registry says is installed.',
                 handler: fn (array $input): array => $this->inspection()->lock($input),
@@ -390,6 +402,7 @@ final readonly class PluginOperations
                 Externality::ThirdParty,
                 Reversibility::Guaranteed,
                 Authority::Read,
+                subject: Subject::None,
                 rollbackContract: 'nothing-to-roll-back',
             ),
             description: 'Which remotely-installed plugins have a newer version available.',
@@ -414,6 +427,7 @@ final readonly class PluginOperations
                 Reversibility::ManualRecovery,
                 // The highest authority in the whole catalogue: it decides what code this app runs.
                 Authority::Privileged,
+                subject: Subject::Executable,
                 escalatesOn: ['source'],
             ),
             description: 'Install a plugin from a source coordinate, e.g. "acme/mail-plugin:^2.0".',
@@ -454,6 +468,7 @@ final readonly class PluginOperations
                 Externality::ThirdParty,
                 Reversibility::ManualRecovery,
                 Authority::Privileged,
+                subject: Subject::Executable,
                 escalatesOn: ['name'],
             ),
             description: 'Update an installed plugin to a newer version from the source it came from.',
@@ -483,6 +498,7 @@ final readonly class PluginOperations
                 // files it created, config it changed. Recovery is a human reading what it touched.
                 Reversibility::ManualRecovery,
                 Authority::Privileged,
+                subject: Subject::Executable,
                 escalatesOn: ['name'],
             ),
             description: 'Remove an installed plugin, optionally keeping the data it wrote.',
