@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/getmilpa/plugin/compare/v0.10.1...v0.11.0) (2026-08-09)
+
+
+### Features
+
+* **effect:** every plugin operation declares what its change is made of ([c84107c](https://github.com/getmilpa/plugin/commit/c84107c0e384d0def05e9a42df96a505b20ffe05))
+
 ## [0.10.1](https://github.com/getmilpa/plugin/compare/v0.10.0...v0.10.1) (2026-08-09)
 
 
