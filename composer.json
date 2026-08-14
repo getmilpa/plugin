@@ -20,10 +20,10 @@
   ],
   "require": {
     "php": ">=8.3",
-    "milpa/core": "^0.6.2 || ^0.7 || ^0.8",
-    "milpa/command": "^0.7 || ^0.8 || ^0.9",
+    "milpa/core": ">=0.6.2 <1.0",
+    "milpa/command": ">=0.7 <1.0",
     "milpa/events": "^0.2",
-    "milpa/resolver": "^0.5.2 || ^0.6",
+    "milpa/resolver": ">=0.5.2 <1.0",
     "psr/log": "^3",
     "psr/http-client": "^1.0",
     "psr/http-factory": "^1.0"
