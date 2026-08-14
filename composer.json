@@ -20,7 +20,7 @@
   ],
   "require": {
     "php": ">=8.3",
-    "milpa/core": "^0.6.2 || ^0.7",
+    "milpa/core": "^0.6.2 || ^0.7 || ^0.8",
     "milpa/command": "^0.7 || ^0.8 || ^0.9",
     "milpa/events": "^0.2",
     "milpa/resolver": "^0.5.2 || ^0.6",
