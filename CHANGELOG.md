@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.13.1](https://github.com/getmilpa/plugin/compare/v0.13.0...v0.13.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **runtime:** a plugin that throws in boot() is skipped, not fatal ([#33](https://github.com/getmilpa/plugin/issues/33)) ([db951ae](https://github.com/getmilpa/plugin/commit/db951ae6ff54e33d2011862a78e06c06c2b2bc62))
+
 ## [0.13.0](https://github.com/getmilpa/plugin/compare/v0.12.2...v0.13.0) (2026-08-31)
 
 
