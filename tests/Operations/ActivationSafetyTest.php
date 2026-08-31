@@ -61,6 +61,11 @@ final class ActivationSafetyTest extends TestCase
             {
                 return $this->motivo;
             }
+
+            public function blockingReasonWith(string $newPluginClass): ?string
+            {
+                return $this->motivo;
+            }
         };
     }
 
@@ -191,6 +196,11 @@ final class ActivationSafetyTest extends TestCase
                 $this->consultada = true;
 
                 return 'jamás debería consultarse al encender';
+            }
+
+            public function blockingReasonWith(string $newPluginClass): ?string
+            {
+                return null;
             }
         };
 

@@ -45,6 +45,11 @@ final class SafetyConsumidor
 {
 }
 
+// A propósito SIN #[PluginMetadata]: no declara `requires`, así que agregarlo no puede abrir el grafo.
+final class SafetySinMetadata
+{
+}
+
 /**
  * El evaluador que le faltaba a toda app generada.
  *
@@ -89,5 +94,42 @@ final class MetadataActivationSafetyTest extends TestCase
         $safety = new MetadataActivationSafety(self::TODOS);
 
         self::assertNull($safety->blockingReasonWithout('NoExiste'));
+    }
+
+    // ── la otra mitad: agregar (greenhouse decisions/0178) ──────────────────────────────────────
+    public function testAgregarUnConsumidorConSuProveedorPresenteNoBloquea(): void
+    {
+        // El grafo en curso tiene el almacén; agregar el consumidor cierra.
+        $safety = new MetadataActivationSafety([SafetyAlmacen::class]);
+
+        self::assertNull($safety->blockingReasonWith(SafetyConsumidor::class));
+    }
+
+    public function testAgregarUnConsumidorSinProveedorSiBloquea(): void
+    {
+        // Nadie provee demo.almacen.v1: registrar el consumidor abriría el grafo — se atrapa AQUÍ, en el
+        // gate, no en el siguiente arranque. Es el brick que el agente causó, prevenido.
+        $safety = new MetadataActivationSafety([]);
+
+        $motivo = $safety->blockingReasonWith(SafetyConsumidor::class);
+
+        self::assertNotNull($motivo);
+        self::assertStringContainsString('demo.almacen.v1', $motivo, 'dice QUÉ capacidad faltaría');
+    }
+
+    public function testAgregarUnPluginSinMetadataNoBloquea(): void
+    {
+        // Sin #[PluginMetadata] no hay `requires`: agregarlo es seguro. Control que separa «nada que
+        // comprobar» de «no se pudo» — este no niega, y por eso el guardia no es un muro.
+        $safety = new MetadataActivationSafety([SafetyAlmacen::class]);
+
+        self::assertNull($safety->blockingReasonWith(SafetySinMetadata::class));
+    }
+
+    public function testAgregarUnProveedorNoBloquea(): void
+    {
+        $safety = new MetadataActivationSafety([]);
+
+        self::assertNull($safety->blockingReasonWith(SafetyAlmacen::class));
     }
 }

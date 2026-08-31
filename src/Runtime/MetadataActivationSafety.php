@@ -127,6 +127,61 @@ final class MetadataActivationSafety implements ActivationSafetyInterface
     }
 
     /**
+     * Resuelve el grafo CON `$newPluginClass` agregado y devuelve la razón que el resolver dé si quedaría
+     * bloqueado. La otra mitad de {@see self::blockingReasonWithout()}: agregar trae `requires`, y el
+     * invariante es uno —el grafo nunca se deja abierto por una mutación (greenhouse decisions/0178).
+     * Falla cerrado: sin metadata legible o sin poder resolver, contesta con un motivo, no con `null`.
+     */
+    public function blockingReasonWith(string $newPluginClass): ?string
+    {
+        $nuevo = $this->metadataOf($newPluginClass);
+        if ($nuevo === null) {
+            // Sin `#[PluginMetadata]` no hay `requires` que declarar: agregar un plugin así no puede
+            // abrir el grafo, así que no hay nada que bloquear. No es «no se pudo comprobar» —es «no
+            // había nada que comprobar». (Un `requires` sólo viaja en el atributo.)
+            return null;
+        }
+
+        $plugins = [];
+        foreach ($this->enCurso() as $clase) {
+            $meta = $this->metadataOf($clase);
+            if ($meta === null) {
+                continue;
+            }
+            $plugins[] = [
+                'name' => $meta->name,
+                'version' => $meta->version,
+                'type' => $meta->type,
+                'provides' => array_values($meta->provides),
+                'requires' => array_values($meta->requires),
+                'suggests' => array_values($meta->suggests),
+            ];
+        }
+        $plugins[] = [
+            'name' => $nuevo->name,
+            'version' => $nuevo->version,
+            'type' => $nuevo->type,
+            'provides' => array_values($nuevo->provides),
+            'requires' => array_values($nuevo->requires),
+            'suggests' => array_values($nuevo->suggests),
+        ];
+
+        try {
+            $reporte = $this->resolver->diagnose($plugins);
+        } catch (\Throwable $e) {
+            return 'no se pudo comprobar si el grafo cerraría con ' . $newPluginClass
+                . ' (' . $e->getMessage() . '), así que no se autoriza el registro.';
+        }
+
+        if ($reporte->status !== ResolutionStatus::Blocked) {
+            return null;
+        }
+
+        return $reporte->firstLearnableLine()
+            ?? 'el grafo de arquitectura quedaría bloqueado; el resolver no reportó un error legible.';
+    }
+
+    /**
      * Las clases que el PRÓXIMO arranque cargaría: las declaradas y encendidas.
      *
      * Y no las declaradas a secas, que fue el primer intento y estaba mal: un plugin apagado sigue
