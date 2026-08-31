@@ -492,6 +492,107 @@ final class PluginsManagerApiTest extends TestCase
         );
     }
 
+    public function testAPluginThatThrowsInBootIsSkippedAndTheLoopContinues(): void
+    {
+        // A plugin whose boot() throws — an agent authoring a plugin can leave it momentarily
+        // uncbootable (a service wired with the wrong arguments). It must be skipped, not fatal,
+        // so a session-level read like agent:show still answers and the Desktop is not blinded.
+        $brokenPlugin = new class () implements PluginInterface {
+            public int $bootCalls = 0;
+
+            public function __construct(?DIContainerInterface $container = null)
+            {
+            }
+
+            public function boot(): void
+            {
+                ++$this->bootCalls;
+
+                throw new \RuntimeException('Too few arguments to TaskService::__construct()');
+            }
+
+            public function install(): void
+            {
+            }
+
+            public function uninstall(): void
+            {
+            }
+
+            public function enable(): void
+            {
+            }
+
+            public function disable(): void
+            {
+            }
+        };
+
+        $healthyPlugin = new class () implements PluginInterface {
+            public int $bootCalls = 0;
+
+            public function __construct(?DIContainerInterface $container = null)
+            {
+            }
+
+            public function boot(): void
+            {
+                ++$this->bootCalls;
+            }
+
+            public function install(): void
+            {
+            }
+
+            public function uninstall(): void
+            {
+            }
+
+            public function enable(): void
+            {
+            }
+
+            public function disable(): void
+            {
+            }
+        };
+
+        $brokenClass = get_class($brokenPlugin);
+        $healthyClass = get_class($healthyPlugin);
+        $this->assertNotSame($brokenClass, $healthyClass, 'Test fixture sanity check: the two plugins must be distinct classes');
+
+        $container = $this->createMock(DIContainerInterface::class);
+        $container->method('has')->willReturnCallback(
+            fn ($id) => in_array($id, [$brokenClass, $healthyClass], true)
+        );
+        $container->method('get')->willReturnCallback(
+            function ($id) use ($brokenPlugin, $healthyPlugin, $brokenClass, $healthyClass) {
+                return match ($id) {
+                    LoggerInterface::class => $this->logger,
+                    $brokenClass => $brokenPlugin,
+                    $healthyClass => $healthyPlugin,
+                    default => null,
+                };
+            }
+        );
+
+        $plugins = $this->newManager($container);
+
+        $reflection = new \ReflectionClass($plugins);
+        $method = $reflection->getMethod('registerAndBoot');
+        $method->setAccessible(true);
+
+        // The broken plugin boots FIRST — if a throw were fatal, the healthy plugin after it would
+        // never boot. It must not throw out of the loop.
+        $method->invoke($plugins, $brokenClass, 'BrokenPlugin', ['name' => 'BrokenPlugin']);
+        $method->invoke($plugins, $healthyClass, 'HealthyPlugin', ['name' => 'HealthyPlugin']);
+
+        $this->assertSame(1, $brokenPlugin->bootCalls, 'The broken plugin boot() ran (and threw)');
+        $this->assertSame(1, $healthyPlugin->bootCalls, 'The healthy plugin after it must still boot — a throw must not abort the loop');
+        $this->assertNull($plugins->getPlugin('BrokenPlugin'), 'A plugin that failed to boot must not be tracked as booted');
+        $this->assertSame($healthyPlugin, $plugins->getPlugin('HealthyPlugin'), 'The healthy plugin must boot and be tracked');
+    }
+
     public function testRegisterPluginToolsSkipsNonToolProvider(): void
     {
         // Plugin without ToolProviderInterface
