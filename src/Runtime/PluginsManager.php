@@ -958,7 +958,20 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
             return false;
         }
 
-        $plugin->boot();
+        try {
+            $plugin->boot();
+        } catch (\Throwable $e) {
+            // A PLUGIN THAT THROWS IN boot() MUST NOT BLIND THE WHOLE APP. An agent authoring a
+            // plugin can leave it momentarily uncbootable (a service wired with the wrong arguments,
+            // say), and a session-level read like `agent:show` still has to answer — its data lives in
+            // the session store, not in this plugin. So a boot failure is treated like a veto: logged
+            // and skipped (this plugin's services and routes are absent), the loop continues with the
+            // next plugin, and the rest of the app boots. Same contract as the `plugin.booting` veto
+            // above — `false` means boot() did not run, and the caller must not treat it as fatal.
+            $this->logger->error("[Plugins] Boot failed for plugin '{$name}', skipped: " . $e->getMessage());
+
+            return false;
+        }
 
         $dispatcher?->dispatch(
             'plugin.booted',
