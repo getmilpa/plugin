@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.13.0](https://github.com/getmilpa/plugin/compare/v0.12.2...v0.13.0) (2026-08-31)
+
+
+### Features
+
+* registering a plugin fails closed if it would leave the graph open ([#31](https://github.com/getmilpa/plugin/issues/31)) ([d6ccabe](https://github.com/getmilpa/plugin/commit/d6ccabe5000a71c2ba88b0fbd586ea8bf7338505))
+
 ## [0.11.2](https://github.com/getmilpa/plugin/releases/tag/v0.11.2) (2026-08-12)
 
 Accepts `milpa/command ^0.8`, which ships the descent field — an argument that lowers an operation's ceiling, with its reason carried in the declaration.
