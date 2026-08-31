@@ -16,7 +16,10 @@ declare(strict_types=1);
 namespace Milpa\Plugin\Contracts;
 
 /**
- * Contesta si apagar un plugin dejaría a este host sin poder arrancar.
+ * Contesta si una MUTACIÓN del grafo de plugins —apagar uno, o encender/registrar uno nuevo— dejaría a
+ * este host sin poder arrancar. Las dos direcciones porque el invariante es uno solo: el grafo nunca se
+ * deja ABIERTO por una mutación (greenhouse decisions/0178). Apagar quita un proveedor; agregar trae un
+ * `requires` — ambos pueden abrir el grafo, y ambos se juzgan aquí ANTES de commitear, no en el arranque.
  *
  * ── POR QUÉ EXISTE ──────────────────────────────────────────────────────────────────────────────
  *
@@ -47,4 +50,18 @@ interface ActivationSafetyInterface
      * a buscarlo, y la información ya estaba aquí.
      */
     public function blockingReasonWithout(string $pluginName): ?string;
+
+    /**
+     * El motivo por el que AGREGAR `$newPluginClass` al grafo lo dejaría bloqueado, o `null` si cerraría.
+     *
+     * La otra mitad de {@see self::blockingReasonWithout()}: registrar/encender un plugin trae sus
+     * `requires`, y si ninguno de los plugins que el próximo arranque cargaría —más este— provee una de
+     * esas capacidades, el grafo queda ABIERTO y el host deja de arrancar. Se juzga aquí, antes de tocar
+     * `config/plugins.php`, para que la incoherencia se atrape en el gate y no en el siguiente boot
+     * (greenhouse decisions/0178). Devuelve el MOTIVO —qué capacidad se quedaría sin proveedor— por la
+     * misma razón que su simétrico: quien recibe la negativa necesita saber qué proveedor instalar antes.
+     * Falla cerrado: si no se puede leer la metadata del plugin o resolver el grafo, contesta con un
+     * motivo bloqueante en vez de `null` — no poder comprobar no es haber comprobado.
+     */
+    public function blockingReasonWith(string $newPluginClass): ?string;
 }

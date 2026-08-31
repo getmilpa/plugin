@@ -945,6 +945,22 @@ final readonly class PluginOperations
         ) ?? $contenido;
         // Si no hubo dónde poner el `use`, el FQCN va completo en la lista: sigue siendo válido y no
         // deja el archivo a medias.
+        // EL GRAFO NUNCA SE DEJA ABIERTO POR UNA MUTACIÓN (greenhouse decisions/0178). Registrar trae los
+        // `requires` de este plugin: si ninguno de los que el próximo arranque cargaría —más éste— provee
+        // una capacidad que pide, el host deja de arrancar. Se juzga ANTES de escribir `config/plugins.php`,
+        // para que la incoherencia se atrape en el gate y no en el siguiente boot. El apagado ya lo hacía
+        // (blockingReasonWithout); ésta es su mitad faltante, y por eso el agente ya no puede brickear la app.
+        if ($this->safety !== null) {
+            $motivo = $this->safety->blockingReasonWith($fqcn);
+            if ($motivo !== null) {
+                return [
+                    'ok' => false,
+                    'error' => "Registering {$corto} would leave this host unable to boot: {$motivo} "
+                        . 'Install or enable a provider for that capability first. Nothing was changed.',
+                ];
+            }
+        }
+
         $entrada = $conUse === $contenido ? '    \\' . $fqcn . '::class,' : '    ' . $corto . '::class,';
         $nuevo = (string) preg_replace('/\n\];\s*$/', "\n" . $entrada . "\n];\n", $conUse, 1);
 

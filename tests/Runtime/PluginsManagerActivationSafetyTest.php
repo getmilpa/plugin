@@ -129,6 +129,36 @@ final class PluginsManagerActivationSafetyTest extends TestCase
         self::assertNull($manager->blockingReasonWithout('NoEstaEncendido'));
     }
 
+    // ── la otra mitad: registrar (greenhouse decisions/0178) ────────────────────────────────────
+    public function testRegisteringAConsumerWithNoProviderIsRefusedWithTheReason(): void
+    {
+        // El grafo en curso no provee la capacidad; registrar el consumidor la abriría — se atrapa AQUÍ,
+        // en el gate, no en el siguiente arranque. Es el brick que el agente causó, prevenido.
+        $manager = $this->bootedWith(
+            requiredCapabilities: [],
+            fixtures: ['SafetySpareFixture' => []],
+        );
+
+        $consumidor = $this->writeConsumer('SafetyNewConsumer', ['Milpa\\Fixtures\\SafetyContract']);
+        $motivo = $manager->blockingReasonWith($consumidor);
+
+        self::assertNotNull($motivo, 'agregar un consumidor sin proveedor abriría el grafo');
+        self::assertStringContainsString('SafetyContract', $motivo);
+    }
+
+    /** Con el proveedor presente, registrar al consumidor cierra el grafo y se permite. */
+    public function testRegisteringAConsumerWhoseProviderIsPresentIsAllowed(): void
+    {
+        $manager = $this->bootedWith(
+            requiredCapabilities: [],
+            fixtures: ['SafetyProviderFixture' => ['Milpa\\Fixtures\\SafetyContract']],
+        );
+
+        $consumidor = $this->writeConsumer('SafetyNewConsumerOk', ['Milpa\\Fixtures\\SafetyContract']);
+
+        self::assertNull($manager->blockingReasonWith($consumidor));
+    }
+
     /**
      * Sin perfil de host declarado no hay nada que exigir, y no exigir no es bloquear.
      *
@@ -237,6 +267,54 @@ final class PluginsManagerActivationSafetyTest extends TestCase
         if (!class_exists($fqcn, false)) {
             require_once $file;
         }
+    }
+
+    /**
+     * Un consumidor con `requires` y sin `provides`, para probar el ADD (greenhouse decisions/0178).
+     *
+     * @param list<string> $requires
+     *
+     * @return class-string el FQCN, para pasárselo a blockingReasonWith()
+     */
+    private function writeConsumer(string $name, array $requires): string
+    {
+        $dir = $this->tmp . '/plugins/' . $name . 'Plugin';
+        mkdir($dir, 0777, true);
+
+        $requiresPhp = var_export($requires, true);
+        $file = $dir . '/' . $name . 'Plugin.php';
+        file_put_contents($file, <<<PHP
+            <?php
+
+            declare(strict_types=1);
+
+            namespace Milpa\\Plugins\\{$name}Plugin;
+
+            use Milpa\\Attributes\\PluginMetadata;
+
+            #[PluginMetadata(
+                version: '1.0.0',
+                author: 'Acme',
+                site: 'https://teamx.agency',
+                name: '{$name}',
+                type: 'Service',
+                provides: [],
+                requires: {$requiresPhp}
+            )]
+            class {$name}Plugin
+            {
+                public function __construct(private mixed \$container)
+                {
+                }
+            }
+            PHP);
+
+        $fqcn = "Milpa\\Plugins\\{$name}Plugin\\{$name}Plugin";
+        if (!class_exists($fqcn, false)) {
+            require_once $file;
+        }
+
+        return $fqcn;
     }
 
     private function removeDir(string $dir): void

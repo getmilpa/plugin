@@ -144,6 +144,48 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
     }
 
     /**
+     * El motivo por el que AGREGAR `$newPluginClass` dejaría el grafo bloqueado, o `null` si cerraría.
+     *
+     * La otra mitad de {@see self::blockingReasonWithout()}: el invariante es uno —el grafo nunca se deja
+     * abierto por una mutación (greenhouse decisions/0178). Un plugin sin `#[PluginMetadata]` no declara
+     * `requires`: agregarlo no puede abrir el grafo, así que no hay nada que bloquear. Si el resolver mismo
+     * TRUENA, se falla CERRADO al agregar (a diferencia de quitar, que tiene vía de recuperación): un
+     * registro que podría abrir el grafo y no se pudo verificar no se autoriza.
+     */
+    public function blockingReasonWith(string $newPluginClass): ?string
+    {
+        try {
+            $meta = $this->getMetadataFromAttributes($newPluginClass);
+        } catch (\Throwable) {
+            // Sin metadata no hay `requires`: agregarlo es seguro. No es «no se pudo», es «nada que comprobar».
+            return null;
+        }
+
+        $hostProfile = $this->loadHostProfile() ?? $this->permissiveHostProfile();
+        $conNuevo = $this->plugins;
+        $conNuevo[] = $meta;
+
+        try {
+            $report = $this->resolveGraph($conNuevo, $hostProfile);
+        } catch (\Throwable $e) {
+            $this->logger->warning(
+                '[Plugins] No se pudo comprobar si registrar ' . $newPluginClass . ' bloquearía el arranque: '
+                . $e->getMessage() . '. Se niega el registro por precaución.'
+            );
+
+            return 'no se pudo comprobar si el grafo cerraría con ' . $newPluginClass
+                . ' (' . $e->getMessage() . '), así que no se autoriza el registro.';
+        }
+
+        if ($report->status !== ResolutionStatus::Blocked) {
+            return null;
+        }
+
+        return $report->firstLearnableLine()
+            ?? 'el grafo de arquitectura quedaría bloqueado; el resolver no reportó un error legible.';
+    }
+
+    /**
      * Returns all booted plugin instances, keyed by plugin name.
      *
      * @return array<string, PluginInterface>

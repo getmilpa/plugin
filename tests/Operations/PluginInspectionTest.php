@@ -499,6 +499,11 @@ final class PluginInspectionTest extends TestCase
                     ? 'ConsumidorFixture requires "Acme\\Fixtures\\CosaContract" and nobody else provides it.'
                     : null;
             }
+
+            public function blockingReasonWith(string $newPluginClass): ?string
+            {
+                return null;
+            }
         };
 
         $inspection = new PluginInspection(

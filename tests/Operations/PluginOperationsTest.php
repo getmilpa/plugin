@@ -21,6 +21,7 @@ use Milpa\DTO\PluginInstallResult;
 use Milpa\DTO\PluginRemoveResult;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
+use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Operations\PluginOperations;
 use Milpa\Plugin\Registry\InMemoryPluginRegistry;
 use PHPUnit\Framework\TestCase;
@@ -626,6 +627,43 @@ final class PluginOperationsTest extends TestCase
         self::assertStringContainsString('PluginManagementPlugin::class,', $lista, 'y lo que ya estaba sigue');
         // QUE QUEDE ESCRITO NO ES QUE ARRANQUE, y el resultado no lo confunde.
         self::assertStringContainsString('siguiente comando', (string) $r['hint']);
+    }
+
+    /**
+     * EL GRAFO NUNCA SE DEJA ABIERTO POR UNA MUTACIÓN (greenhouse decisions/0178): si registrar el plugin
+     * dejaría un `requires` sin proveedor, se NIEGA en el gate —con el motivo— y `config/plugins.php` no se
+     * toca. Es el brick que el agente causó (un plugin de datos sin `data.repository`), prevenido: la
+     * incoherencia se atrapa aquí, no en el siguiente arranque.
+     */
+    public function testRegisteringIsRefusedWhenItWouldOpenTheGraph(): void
+    {
+        $raiz = $this->appConPlugin('DatosPlugin');
+
+        $safety = new class () implements ActivationSafetyInterface {
+            public function blockingReasonWithout(string $pluginName): ?string
+            {
+                return null;
+            }
+
+            public function blockingReasonWith(string $newPluginClass): ?string
+            {
+                return 'DatosPlugin requires "data.repository" and nobody provides it.';
+            }
+        };
+
+        $ops = [];
+        foreach ((new PluginOperations($this->registry, null, [], $safety, $raiz))->operations() as $o) {
+            $ops[$o->name] = $o;
+        }
+        $op = $ops['plugins.register'] ?? null;
+        self::assertNotNull($op, 'la operación existe con raíz');
+        /** @var array<string, mixed> $r */
+        $r = ($op->handler)(['name' => 'DatosPlugin']);
+
+        self::assertFalse($r['ok'], 'un registro que abriría el grafo se niega');
+        self::assertStringContainsString('data.repository', (string) $r['error'], 'dice QUÉ capacidad falta');
+        self::assertStringContainsString('unable to boot', (string) $r['error']);
+        self::assertStringNotContainsString('DatosPlugin::class', (string) file_get_contents($raiz . '/config/plugins.php'), 'nada se escribió');
     }
 
     /** El contrato de intención viaja en la operación: sin él, esto sería un cheque en blanco. */
