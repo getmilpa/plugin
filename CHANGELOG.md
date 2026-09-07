@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.15.0](https://github.com/getmilpa/plugin/compare/v0.14.0...v0.15.0) (2026-09-07)
+
+
+### Features
+
+* the reversal falsifier — a guarantee is run and undone, not asserted ([#37](https://github.com/getmilpa/plugin/issues/37)) ([4515b2e](https://github.com/getmilpa/plugin/commit/4515b2e6d2580eac69bae1fc4f160016b2325ac9))
+
 ## [0.14.0](https://github.com/getmilpa/plugin/compare/v0.13.1...v0.14.0) (2026-09-07)
 
 
