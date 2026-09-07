@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace Milpa\Plugin\Tests\Operations;
 
+use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Operation;
 use Milpa\DTO\DependencyResolution;
 use Milpa\DTO\PluginInstallResult;
@@ -66,6 +67,52 @@ final class PluginOperationsTest extends TestCase
      *
      * @return array<string, Operation>
      */
+    /**
+     * WHAT A READ DECLARES, TIED TO THE ONE PLACE THAT SAYS IT.
+     *
+     * `milpa/command` 0.24.0 split «nothing to undo» from «I can undo it», because only the second buys
+     * lower scrutiny and every read here was claiming it. Six of these were the canonical read restated,
+     * so they now CALL it — and a package that declares a condition owes the test tying the declaration
+     * to what enforces it, or the two drift apart the first time one of them is edited.
+     */
+    public function testEveryReadIsTheCanonicalReadExceptTheOneThatReachesTheNetwork(): void
+    {
+        $canonical = EffectProfile::readOnly()->toArray();
+        $seen = [];
+
+        // With the installer wired, so the one that reaches the network is on the table too.
+        foreach ($this->operations($this->installer()) as $operation) {
+            if ($operation->mutating) {
+                continue;
+            }
+
+            self::assertNotNull($operation->effects, $operation->name . ' declares no effects');
+            $effects = $operation->effects->toArray();
+            $seen[$operation->name] = $effects['reversibility'];
+
+            self::assertNotSame(
+                'guaranteed',
+                $effects['reversibility'],
+                $operation->name . ' reads and still promises to undo something',
+            );
+
+            if ($operation->name === 'plugins.outdated') {
+                // It reads and STILL reaches a third party — which is why externality is its own
+                // dimension and not a shade of mutation. Not canonical, and it says so.
+                self::assertSame('third_party', $effects['externality']);
+                self::assertSame('not_applicable', $effects['reversibility']);
+                self::assertNull($effects['rollback_contract']);
+
+                continue;
+            }
+
+            self::assertSame($canonical, $effects, $operation->name . ' restates the canonical read instead of calling it');
+        }
+
+        self::assertNotSame([], $seen, 'the package offers reads at all');
+        self::assertArrayHasKey('plugins.outdated', $seen, 'including the one that is not canonical');
+    }
+
     private function operations(?PluginInstallerInterface $installer = null, array $declared = []): array
     {
         $byName = [];
@@ -611,6 +658,53 @@ final class PluginOperationsTest extends TestCase
         $r = ($op->handler)($input);
 
         return $r;
+    }
+
+    /**
+     * Un nombre que no puede ser una clase se rechaza ANTES de tocar el árbol.
+     *
+     * `plugins.register` edita `config/plugins.php`, y lo que escribe ahí es una clase que el kernel va
+     * a instanciar. Un nombre que no cumple la convención del andamio no puede resolver a ninguna, así
+     * que la operación contesta en vez de escribir algo que no arranca.
+     */
+    public function testANameThatCannotBeAClassIsRefusedBeforeAnythingIsWritten(): void
+    {
+        $raiz = $this->appConPlugin('HolaPlugin');
+        $antes = (string) file_get_contents($raiz . '/config/plugins.php');
+
+        // El nombre VACÍO no llega hasta aquí: `name()` lo rechaza antes, y esa es otra guarda.
+        foreach (['minusculas', '9Numeros', 'con-guion'] as $nombre) {
+            $r = $this->registrar($raiz, ['name' => $nombre]);
+
+            self::assertFalse($r['ok'], \sprintf('«%s» no es un nombre de clase', $nombre));
+            self::assertStringContainsString('no parece un nombre de clase', (string) $r['error']);
+        }
+
+        self::assertSame($antes, (string) file_get_contents($raiz . '/config/plugins.php'), 'y nada se escribió');
+    }
+
+    /**
+     * Una app SIN `config/plugins.php` conserva la foto que le dieron, no inventa una lista.
+     *
+     * `plugins.list` re-lee el archivo declarado en cada llamada para no contestar con una foto vieja.
+     * Cuando no hay archivo que leer, «no lo pude leer» no autoriza a decir «no hay plugins»: se
+     * conserva lo que el host declaró al construir.
+     */
+    public function testWithoutADeclaredFileTheListKeepsWhatTheHostDeclared(): void
+    {
+        $raiz = sys_get_temp_dir() . '/milpa-sin-config-' . bin2hex(random_bytes(4));
+        mkdir($raiz . '/config', 0o775, true);
+        self::assertFileDoesNotExist($raiz . '/config/plugins.php');
+
+        $op = $this->operationsWithRoot($raiz)['plugins.list'] ?? null;
+        self::assertNotNull($op);
+
+        /** @var array<string, mixed> $r */
+        $r = ($op->handler)([]);
+        self::assertIsArray($r['plugins'] ?? null, 'contesta la foto que tenía, no un error');
+
+        rmdir($raiz . '/config');
+        rmdir($raiz);
     }
 
     /** Registra un plugin del árbol: la clase entra a la lista y el `use` con ella. */
