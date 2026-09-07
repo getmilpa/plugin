@@ -150,10 +150,19 @@ final readonly class PluginOperations
                 effects: new EffectProfile(
                     Mutation::Persistent,
                     Externality::None,
-                    // A REAL, TESTED INVERSE: `enable` and `disable` are literally the same method called with
-                    // true and false. This is the only kind of evidence that earns `Guaranteed`, which is the
-                    // only level that buys an operation less scrutiny.
-                    Reversibility::Guaranteed,
+                    // A REAL, TESTED INVERSE — `enable` and `disable` are literally the same method called
+                    // with true and false — AND STILL NOT `Guaranteed` (greenhouse decisions/0221).
+                    //
+                    // The inverse REFUSES on a host that wired no `ActivationSafetyInterface`: nobody can
+                    // check whether turning the plugin off would leave the capability graph without a
+                    // provider, so the undo depends on what the host wired. `Guaranteed` means a tested
+                    // inverse exists AND the authority to run it is available — the enum's own words — and
+                    // a guarantee that depends on the host is not a guarantee.
+                    //
+                    // Measured before choosing this rung: `Compensatable` costs NOTHING here. It keeps the
+                    // same `IntentAdmissibility` tier (only Irreversible and Unknown are barred) and stays
+                    // out of the «irreversible» withdrawal class, which excludes it by name.
+                    Reversibility::Compensatable,
                     Authority::WriteAsUser,
                     subject: Subject::Executable,
                     rollbackContract: 'plugins.disable',
@@ -186,7 +195,10 @@ final readonly class PluginOperations
                 effects: new EffectProfile(
                     Mutation::Persistent,
                     Externality::None,
-                    Reversibility::Guaranteed,
+                    // The mirror of its inverse's rung, and for the mirror reason: THIS is the operation
+                    // that refuses without an `ActivationSafetyInterface`, so on such a host it cannot be
+                    // run at all — and an operation that may not run is not the backing for a guarantee.
+                    Reversibility::Compensatable,
                     Authority::WriteAsUser,
                     subject: Subject::Executable,
                     rollbackContract: 'plugins.enable',
