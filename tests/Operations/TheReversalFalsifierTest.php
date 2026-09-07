@@ -26,8 +26,13 @@ use PHPUnit\Framework\TestCase;
 /**
  * THE REVERSAL FALSIFIER — greenhouse `.milpa/promises/reversal-contract.yaml`.
  *
- * An operation that claims `Reversibility::Guaranteed` buys lower scrutiny with a promise: a tested
- * inverse exists. Until now the house asked for that proof and accepted a note. This runs it.
+ * A rollback contract that NAMES an operation is a claim somebody can run — whether the profile calls it
+ * a guarantee or a compensating action. Until now the house asked for that proof and accepted a note.
+ * This runs it.
+ *
+ * These two declare `Compensatable`, not `Guaranteed` (greenhouse `decisions/0221`): their inverse refuses
+ * on a host that wired no {@see ActivationSafetyInterface}, and a guarantee that depends on the host is not
+ * a guarantee. The rung changed; the claim did not — and the claim is what this falsifies.
  *
  * The shape, and every part of it matters:
  *
@@ -71,7 +76,7 @@ final class TheReversalFalsifierTest extends TestCase
         $table = $this->table();
         $forward = $table['plugins.enable'];
 
-        self::assertSame(Reversibility::Guaranteed, $forward->effects?->reversibility, 'it claims the discount');
+        self::assertSame(Reversibility::Compensatable, $forward->effects?->reversibility, 'it claims a compensating action, not a discount');
         self::assertFalse($this->postconditionOfEnableHolds(), 'and it has not run yet');
 
         ($forward->handler)(['name' => 'Acme']);
