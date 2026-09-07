@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.14.0](https://github.com/getmilpa/plugin/compare/v0.13.1...v0.14.0) (2026-09-07)
+
+
+### Features
+
+* a read says undoing does not apply, and says it in one place ([#35](https://github.com/getmilpa/plugin/issues/35)) ([6e1823d](https://github.com/getmilpa/plugin/commit/6e1823def1278d76eeddbdb7f6f73111a2f42d7d))
+
 ## [0.13.1](https://github.com/getmilpa/plugin/compare/v0.13.0...v0.13.1) (2026-08-31)
 
 
