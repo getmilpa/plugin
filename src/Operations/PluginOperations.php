@@ -16,6 +16,7 @@ declare(strict_types=1);
 namespace Milpa\Plugin\Operations;
 
 use Milpa\Attributes\PluginMetadata;
+use Milpa\Command\DeclaredCondition;
 use Milpa\Command\Effect\Authority;
 use Milpa\Command\Effect\EffectProfile;
 use Milpa\Command\Effect\Externality;
@@ -164,6 +165,21 @@ final readonly class PluginOperations
                 scopes: ['plugins:write'],
                 path: '/plugins/enable',
                 namedTarget: 'name',
+                // WHAT THE INVERSE HAS TO MAKE FALSE AGAIN.
+                //
+                // `Guaranteed` promises a tested inverse, and «tested» needs something to assert. Without
+                // a postcondition, running the inverse and running nothing look the same from outside:
+                // the world is not compared to a claim, it is just described afterwards. This is the
+                // claim — and `plugins.disable` exists to make it false.
+                preconditions: [new DeclaredCondition(
+                    'plugin_registered',
+                    'the plugin is in this app\'s registry: only what was registered can be turned on',
+                )],
+                postconditions: [new DeclaredCondition(
+                    'plugin_enabled',
+                    'the plugin is registered AND enabled: it boots on the next request or command',
+                )],
+                observableEvidence: 'the registry entry for that plugin reports enabled = true',
             ),
             new Operation(
                 name: 'plugins.disable',
@@ -182,6 +198,17 @@ final readonly class PluginOperations
                 scopes: ['plugins:write'],
                 path: '/plugins/disable',
                 namedTarget: 'name',
+                // The exact negation of `plugins.enable`'s, because these two ARE each other's inverse:
+                // the same method with true and false. What one asserts, the other has to make false.
+                preconditions: [new DeclaredCondition(
+                    'plugin_registered',
+                    'the plugin is in this app\'s registry: only what was registered can be turned off',
+                )],
+                postconditions: [new DeclaredCondition(
+                    'plugin_disabled',
+                    'the plugin is registered AND not enabled: it does not boot until it is turned on again',
+                )],
+                observableEvidence: 'the registry entry for that plugin reports enabled = false',
             ),
             // La vía de RECUPERACIÓN, y es otra operación a propósito.
             //
