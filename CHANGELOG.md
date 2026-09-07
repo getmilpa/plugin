@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.15.1](https://github.com/getmilpa/plugin/compare/v0.15.0...v0.15.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* a guarantee that depends on the host is not a guarantee ([#39](https://github.com/getmilpa/plugin/issues/39)) ([17aeb4a](https://github.com/getmilpa/plugin/commit/17aeb4a3659c86d90b2d120933bed3f33c16aae7))
+
 ## [0.15.0](https://github.com/getmilpa/plugin/compare/v0.14.0...v0.15.0) (2026-09-07)
 
 
