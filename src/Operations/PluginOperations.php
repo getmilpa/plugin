@@ -114,14 +114,7 @@ final readonly class PluginOperations
         $operations = [
             new Operation(
                 name: 'plugins.list',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'List every installed plugin with its version, type and whether it boots.',
                 handler: fn (array $input): array => $this->list($input),
                 inputSchema: [
@@ -139,14 +132,7 @@ final readonly class PluginOperations
             ),
             new Operation(
                 name: 'plugins.show',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: 'Everything the registry knows about one plugin.',
                 handler: fn (array $input): array => $this->show($input),
                 inputSchema: $this->nameSchema(),
@@ -244,14 +230,7 @@ final readonly class PluginOperations
         // código de afuera.
         $operations[] = new Operation(
             name: 'plugins.deps',
-            effects: new EffectProfile(
-                Mutation::None,
-                Externality::None,
-                Reversibility::Guaranteed,
-                Authority::Read,
-                subject: Subject::None,
-                rollbackContract: 'nothing-to-roll-back',
-            ),
+            effects: EffectProfile::readOnly(),
             description: 'Whether the active plugin graph resolves, and in which order they would boot.',
             handler: fn (array $input): array => $this->inspection()->deps($input),
             inputSchema: ['type' => 'object', 'properties' => []],
@@ -265,14 +244,7 @@ final readonly class PluginOperations
         // OPERA el sistema. Antes había que leer plugin por plugin y cruzarlo a mano.
         $operations[] = new Operation(
             name: 'plugins.architecture',
-            effects: new EffectProfile(
-                Mutation::None,
-                Externality::None,
-                Reversibility::Guaranteed,
-                Authority::Read,
-                subject: Subject::None,
-                rollbackContract: 'nothing-to-roll-back',
-            ),
+            effects: EffectProfile::readOnly(),
             description: 'The capability graph as data: who provides what, who needs it, what is unsatisfied, and what breaks if you turn a plugin off.',
             handler: fn (array $input): array => $this->inspection()->architecture($input),
             inputSchema: ['type' => 'object', 'properties' => []],
@@ -282,14 +254,7 @@ final readonly class PluginOperations
 
         $operations[] = new Operation(
             name: 'plugins.simulate',
-            effects: new EffectProfile(
-                Mutation::None,
-                Externality::None,
-                Reversibility::Guaranteed,
-                Authority::Read,
-                subject: Subject::None,
-                rollbackContract: 'nothing-to-roll-back',
-            ),
+            effects: EffectProfile::readOnly(),
             description: 'What turning a plugin on would do, without turning it on.',
             handler: fn (array $input): array => $this->inspection()->simulate($input),
             inputSchema: [
@@ -346,14 +311,7 @@ final readonly class PluginOperations
 
             $operations[] = new Operation(
                 name: 'plugins.verify',
-                effects: new EffectProfile(
-                    Mutation::None,
-                    Externality::None,
-                    Reversibility::Guaranteed,
-                    Authority::Read,
-                    subject: Subject::None,
-                    rollbackContract: 'nothing-to-roll-back',
-                ),
+                effects: EffectProfile::readOnly(),
                 description: "Whether a plugin's milpa.json exists, validates, and matches its attribute.",
                 handler: fn (array $input): array => $this->inspection()->verify($input),
                 inputSchema: [
@@ -400,10 +358,9 @@ final readonly class PluginOperations
                 // exactly why externality is its own dimension and not a shade of mutation — `mutating: false`
                 // would have said «harmless» about an operation that talks to the internet.
                 Externality::ThirdParty,
-                Reversibility::Guaranteed,
+                Reversibility::NotApplicable,
                 Authority::Read,
                 subject: Subject::None,
-                rollbackContract: 'nothing-to-roll-back',
             ),
             description: 'Which remotely-installed plugins have a newer version available.',
             handler: fn (array $input): array => $this->inspection()->outdated($input),

@@ -21,7 +21,7 @@
   "require": {
     "php": ">=8.3",
     "milpa/core": ">=0.6.2 <1.0",
-    "milpa/command": ">=0.7 <1.0",
+    "milpa/command": ">=0.24 <1.0",
     "milpa/events": ">=0.2 <1.0",
     "milpa/resolver": ">=0.5.2 <1.0",
     "psr/log": "^3",
