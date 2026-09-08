@@ -22,12 +22,14 @@ use Milpa\Events\KernelBootedEvent;
 use Milpa\Events\PluginBootedEvent;
 use Milpa\Events\PluginBootingEvent;
 use Milpa\Interfaces\Di\DIContainerInterface;
+use Milpa\Interfaces\Event\DeclaredEvents;
 use Milpa\Interfaces\Event\MilpaEventDispatcherInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Interfaces\Plugin\PluginsManagerInterface;
 use Milpa\Interfaces\Tooling\ToolRegistryInterface;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
+use Milpa\Plugin\Event\PluginEvents;
 use Milpa\Resolver\Engine\GraphResolver;
 use Milpa\Resolver\Ingest\AttributeLoader;
 use Milpa\Resolver\Input\ResolutionInput;
@@ -61,6 +63,9 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
 
     /** @var list<array<string, mixed>> Scanned plugin metadata, resequenced to boot order. */
     private array $plugins = [];
+
+    /** Whether {@see PluginEvents} were already declared to the dispatcher this manager resolved. */
+    private bool $eventsDeclared = false;
 
     public function __construct(
         DIContainerInterface $container,
@@ -949,8 +954,8 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
         $slot = new InterceptionSlot();
 
         $dispatcher?->dispatch(
-            'plugin.booting',
-            ['event' => new PluginBootingEvent($name, $metadata), 'slot' => $slot]
+            PluginEvents::PLUGIN_BOOTING,
+            [PluginEvents::SUBJECT_KEY => new PluginBootingEvent($name, $metadata), PluginEvents::SLOT_KEY => $slot]
         );
 
         if ($slot->isStopped()) {
@@ -974,8 +979,8 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
         }
 
         $dispatcher?->dispatch(
-            'plugin.booted',
-            ['event' => new PluginBootedEvent($name, $metadata)]
+            PluginEvents::PLUGIN_BOOTED,
+            [PluginEvents::SUBJECT_KEY => new PluginBootedEvent($name, $metadata)]
         );
 
         return true;
@@ -987,6 +992,11 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
      * convention): callers invoke it via `?->dispatch(...)` so plugin boot proceeds
      * unaffected when no dispatcher is wired — or when whatever is registered under
      * that key is not actually a dispatcher.
+     *
+     * This is also where the dispatcher ENTERS the package, so it is where the package
+     * declares what it dispatches ({@see PluginEvents}, greenhouse decisions/0228): once per
+     * manager, to a dispatcher that implements {@see DeclaredEvents}. One that does not is
+     * asked nothing, and dispatching keeps working either way — declaring is not enforced.
      */
     private function getEventDispatcher(): ?MilpaEventDispatcherInterface
     {
@@ -996,7 +1006,16 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
 
         $dispatcher = $this->container->get(MilpaEventDispatcherInterface::class);
 
-        return $dispatcher instanceof MilpaEventDispatcherInterface ? $dispatcher : null;
+        if (!$dispatcher instanceof MilpaEventDispatcherInterface) {
+            return null;
+        }
+
+        if (!$this->eventsDeclared && $dispatcher instanceof DeclaredEvents) {
+            $dispatcher->declare(...PluginEvents::declarations());
+            $this->eventsDeclared = true;
+        }
+
+        return $dispatcher;
     }
 
     /**
@@ -1008,8 +1027,8 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
     private function emitCapabilityResolved(array $loadOrder): void
     {
         $this->getEventDispatcher()?->dispatch(
-            'capability.resolved',
-            ['event' => new CapabilityResolvedEvent($loadOrder)]
+            PluginEvents::CAPABILITY_RESOLVED,
+            [PluginEvents::SUBJECT_KEY => new CapabilityResolvedEvent($loadOrder)]
         );
     }
 
@@ -1020,8 +1039,8 @@ final class PluginsManager implements ActivationSafetyInterface, PluginsManagerI
     private function emitKernelBooted(): void
     {
         $this->getEventDispatcher()?->dispatch(
-            'kernel.booted',
-            ['event' => new KernelBootedEvent(array_keys($this->pluginInstances))]
+            PluginEvents::KERNEL_BOOTED,
+            [PluginEvents::SUBJECT_KEY => new KernelBootedEvent(array_keys($this->pluginInstances))]
         );
     }
 
