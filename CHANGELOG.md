@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.16.0](https://github.com/getmilpa/plugin/compare/v0.15.1...v0.16.0) (2026-09-08)
+
+
+### Features
+
+* the plugin runtime declares every lifecycle event it dispatches ([#41](https://github.com/getmilpa/plugin/issues/41)) ([3abcc01](https://github.com/getmilpa/plugin/commit/3abcc01424e044a98a932cd4b162ad7f86485fe2))
+
 ## [0.15.1](https://github.com/getmilpa/plugin/compare/v0.15.0...v0.15.1) (2026-09-07)
 
 
