@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.17.0](https://github.com/getmilpa/plugin/compare/v0.16.0...v0.17.0) (2026-09-08)
+
+
+### Features
+
+* the manifest names the event holder, so a host reads the events without constructing the manager ([#43](https://github.com/getmilpa/plugin/issues/43)) ([3a3323f](https://github.com/getmilpa/plugin/commit/3a3323f80b63fa63b1e4d4b332e0fae58cc80cb0))
+
 ## [0.16.0](https://github.com/getmilpa/plugin/compare/v0.15.1...v0.16.0) (2026-09-08)
 
 
