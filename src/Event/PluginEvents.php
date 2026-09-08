@@ -20,6 +20,7 @@ use Milpa\Events\InterceptionSlot;
 use Milpa\Events\KernelBootedEvent;
 use Milpa\Events\PluginBootedEvent;
 use Milpa\Events\PluginBootingEvent;
+use Milpa\Interfaces\Event\DeclaresEvents;
 use Milpa\Interfaces\Event\EventDeclaration;
 use Milpa\Plugin\Runtime\PluginsManager;
 
@@ -31,8 +32,12 @@ use Milpa\Plugin\Runtime\PluginsManager;
  * declares this list to whichever dispatcher it resolves, provided that dispatcher implements
  * {@see \Milpa\Interfaces\Event\DeclaredEvents}; a dispatcher that does not is asked nothing
  * (greenhouse decisions/0228: the emitter is the authority on what events exist).
+ *
+ * As a {@see DeclaresEvents} holder it also answers one step earlier: `composer.json` names this class
+ * under `extra.milpa.events`, so a host reading the installed manifests can declare these events on
+ * behalf of a {@see PluginsManager} the running process never constructs.
  */
-final class PluginEvents
+final class PluginEvents implements DeclaresEvents
 {
     /** POST: the dependency-ordered plugin graph is final for this boot, before any plugin boots. */
     public const CAPABILITY_RESOLVED = 'capability.resolved';

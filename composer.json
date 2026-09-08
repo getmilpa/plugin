@@ -20,7 +20,7 @@
   ],
   "require": {
     "php": ">=8.3",
-    "milpa/core": ">=0.11 <1.0",
+    "milpa/core": ">=0.12 <1.0",
     "milpa/command": ">=0.25.1 <1.0",
     "milpa/events": ">=0.2 <1.0",
     "milpa/resolver": ">=0.5.2 <1.0",
@@ -48,6 +48,13 @@
       "Milpa\\Plugin\\Tests\\": "tests/",
       "Milpa\\Docs\\": "vendor/milpa/core/tools/gen-docs/",
       "Milpa\\Plugins\\": "tests/Fixtures/Plugins/"
+    }
+  },
+  "extra": {
+    "milpa": {
+      "events": [
+        "Milpa\\Plugin\\Event\\PluginEvents"
+      ]
     }
   }
 }
