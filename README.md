@@ -146,6 +146,17 @@ $container->registerService(AppRoot::class, new AppRoot(__DIR__ . '/..'));
 the graph resolves and in what order plugins would boot, and what enabling one
 *would* do — named provider by provider — without enabling it.
 
+### Catalogue relationships
+
+`plugins.list` declares the shape of its actual result: a `plugins` array with registry names,
+metadata, activation state and a nullable installation timestamp. `plugins.simulate.plugin` and
+`plugins.verify.plugin` name `plugins.list.name` through `x-milpa-source`, so a catalogue reader
+can locate their producer. Call the list without filters to discover the initial values.
+
+Registry names are not source directory names. A vendor plugin can be registered without any
+local source directory, and local code can exist before registration. These relationships are
+discovery hints; they grant no permission and do not select or register a plugin.
+
 ### Declared in code, switched at runtime
 
 A host has plugins from two places, and `ActivePlugins` decides which of them
