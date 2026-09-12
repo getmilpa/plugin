@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.18.0](https://github.com/getmilpa/plugin/compare/v0.17.0...v0.18.0) (2026-09-12)
+
+
+### Features
+
+* publish plugin catalogue outputs and management sources ([07ee674](https://github.com/getmilpa/plugin/commit/07ee674f7f84d1407ce81419e8996db7f2b7e57e))
+
 ## [0.17.0](https://github.com/getmilpa/plugin/compare/v0.16.0...v0.17.0) (2026-09-08)
 
 
