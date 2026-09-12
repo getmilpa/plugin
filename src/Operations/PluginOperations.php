@@ -127,6 +127,33 @@ final readonly class PluginOperations
                             'default' => false,
                         ],
                     ],
+                    'required' => [],
+                ],
+                // Registry names feed management operations; they are not local source directories.
+                // Greenhouse decisions/0324, evidence/0640.
+                outputSchema: [
+                    'type' => 'object',
+                    'properties' => [
+                        'plugins' => [
+                            'type' => 'array',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'name' => ['type' => 'string'],
+                                    'version' => ['type' => 'string'],
+                                    'author' => ['type' => 'string'],
+                                    'site' => ['type' => 'string'],
+                                    'type' => ['type' => 'string'],
+                                    'installed' => ['type' => 'boolean'],
+                                    'enabled' => ['type' => 'boolean'],
+                                    'source' => ['type' => 'string'],
+                                    'installedAt' => ['type' => ['string', 'null']],
+                                ],
+                                'required' => ['name', 'version', 'author', 'site', 'type', 'installed', 'enabled', 'source', 'installedAt'],
+                            ],
+                        ],
+                    ],
+                    'required' => ['plugins'],
                 ],
                 scopes: ['plugins:read'],
                 path: '/plugins',
@@ -298,7 +325,11 @@ final readonly class PluginOperations
             handler: fn (array $input): array => $this->inspection()->simulate($input),
             inputSchema: [
                 'type' => 'object',
-                'properties' => ['plugin' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".']],
+                'properties' => ['plugin' => [
+                    'type' => 'string',
+                    'description' => 'Plugin name, e.g. "MailPlugin".',
+                    'x-milpa-source' => ['tool' => 'plugins.list', 'key' => 'name'],
+                ]],
                 'required' => ['plugin'],
             ],
             scopes: ['plugins:read'],
@@ -355,7 +386,11 @@ final readonly class PluginOperations
                 handler: fn (array $input): array => $this->inspection()->verify($input),
                 inputSchema: [
                     'type' => 'object',
-                    'properties' => ['plugin' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".']],
+                    'properties' => ['plugin' => [
+                        'type' => 'string',
+                        'description' => 'Plugin name, e.g. "MailPlugin".',
+                        'x-milpa-source' => ['tool' => 'plugins.list', 'key' => 'name'],
+                    ]],
                     'required' => ['plugin'],
                 ],
                 scopes: ['plugins:read'],

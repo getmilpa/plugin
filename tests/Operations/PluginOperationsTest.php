@@ -123,6 +123,32 @@ final class PluginOperationsTest extends TestCase
         return $byName;
     }
 
+    /** The catalogue describes the list's real rows and points management reads at registry names. */
+    public function testTheListPublishesItsResultsForManagementConsumers(): void
+    {
+        $this->registry->register($this->record('Catalogued'));
+        $operations = $this->operationsWithRoot(sys_get_temp_dir());
+        $list = $operations['plugins.list'];
+        self::assertSame([], $list->inputSchema['required'] ?? null);
+        self::assertNotNull($list->outputSchema);
+        $rowSchema = $list->outputSchema['properties']['plugins']['items'];
+        $rows = ($list->handler)([])['plugins'];
+        self::assertCount(1, $rows);
+        self::assertEqualsCanonicalizing(array_keys($rows[0]), $rowSchema['required']);
+        self::assertEqualsCanonicalizing(array_keys($rows[0]), array_keys($rowSchema['properties']));
+        self::assertSame(['string', 'null'], $rowSchema['properties']['installedAt']['type']);
+        self::assertNull($rows[0]['installedAt']);
+        self::assertSame('Catalogued', $this->call('plugins.show', ['name' => $rows[0]['name']])['name']);
+        foreach (['plugins.simulate', 'plugins.verify'] as $name) {
+            self::assertSame(
+                ['tool' => 'plugins.list', 'key' => 'name'],
+                $operations[$name]->inputSchema['properties']['plugin']['x-milpa-source'] ?? null,
+            );
+        }
+        // Registration can name a new, unregistered class: registry membership is not its source.
+        self::assertArrayNotHasKey('x-milpa-source', $operations['plugins.register']->inputSchema['properties']['name']);
+    }
+
     /**
      * Las mismas, pero con una raíz de app — para ver aparecer las dos que tocan disco.
      *
