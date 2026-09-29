@@ -27,8 +27,10 @@ use Milpa\Command\Operation;
 use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Plugin\Contracts\PluginRecord;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 use Milpa\Plugin\Contracts\PluginRegistryInterface;
 use Milpa\Plugin\Contracts\StateBaselineInterface;
+use Milpa\Plugin\Registry\FilePluginRegistry;
 
 /**
  * Managing plugins, expressed once as operations.
@@ -84,6 +86,9 @@ final readonly class PluginOperations
         // porque este es el único lugar donde el host arma las operaciones. Ver
         // {@see StateBaselineInterface}.
         private ?StateBaselineInterface $baseline = null,
+        // Whether the house boots with a write, asked BEFORE the live file is written, and whether it still
+        // boots after (greenhouse decisions/0515). Null keeps the old behaviour: judged by the graph alone.
+        private ?BootWitnessInterface $witness = null,
     ) {
     }
 
@@ -774,14 +779,34 @@ final readonly class PluginOperations
             }
         }
 
-        if ($this->registry->find($name) === null) {
-            // A declared plugin with no record yet: switching it is the first
-            // thing anyone ever did to it, so the record is created here rather
-            // than at boot. That is what keeps an app that never manages
-            // anything from growing a store it does not use.
-            $this->registry->register($record->withEnabled($enabled));
-        } else {
-            $this->registry->setEnabled($name, $enabled);
+        $switch = static function (PluginRegistryInterface $registry) use ($name, $record, $enabled): void {
+            if ($registry->find($name) === null) {
+                // A declared plugin with no record yet: switching it is the first
+                // thing anyone ever did to it, so the record is created here rather
+                // than at boot. That is what keeps an app that never manages
+                // anything from growing a store it does not use.
+                $registry->register($record->withEnabled($enabled));
+            } else {
+                $registry->setEnabled($name, $enabled);
+            }
+        };
+
+        // THE HOUSE AS IT WOULD BE BOOTS FIRST (greenhouse decisions/0515). The graph check above reads
+        // metadata; a class that misses an interface method is a compile fatal it cannot see, and once it
+        // is switched on every process that boots dies — the one that would switch it off included.
+        // `disable-unsafe` is recovery: it is never refused because the house is ALREADY broken.
+        $boot = $this->registryWrite($switch, recovery: $overridden);
+        if ($boot['refused'] !== null) {
+            // A toggle refuses by exception, as every refusal of a toggle does; the paths travel in its sentence so
+            // what was left unwritten (or put back) is still named on every surface.
+            $named = '';
+            foreach (['unwritten', 'rolled_back'] as $key) {
+                if (\is_array($boot['said'][$key] ?? null) && $boot['said'][$key] !== []) {
+                    $named .= ' ' . $key . ': ' . implode(', ', $boot['said'][$key]) . '.';
+                }
+            }
+
+            throw new \RuntimeException($boot['refused'] . $named);
         }
 
         $this->registry->invalidateActivationCache();
@@ -790,13 +815,67 @@ final readonly class PluginOperations
         // hechos distintos, y un registro que los confunde no sirve para auditar después.
         // El bloque `safety` sólo al APAGAR: encender nunca se evalúa —agregar un proveedor no puede
         // quitarle uno a nadie— y ponerlo ahí sería ruido con forma de dato.
-        return $enabled
+        return ($enabled
             ? ['name' => $name, 'enabled' => true]
             : [
                 'name' => $name,
                 'enabled' => false,
                 'safety' => ['evaluated' => $this->safety !== null, 'override' => $overridden],
-            ];
+            ]) + $boot['said'];
+    }
+
+    /**
+     * Apply `$mutation` to the registry only if the house boots with what it would write (greenhouse decisions/0515).
+     *
+     * The registry's file is copied, the mutation is rehearsed on the copy, and the bytes it leaves are what
+     * the witness boots the house with. A registry that is not a file under the app root cannot be rehearsed:
+     * it is written as before and nothing claims it booted.
+     *
+     * @param callable(PluginRegistryInterface): void $mutation
+     *
+     * @return array{refused: ?string, said: array<string, mixed>}
+     */
+    private function registryWrite(callable $mutation, bool $recovery): array
+    {
+        $relative = $this->registryPath();
+        if ($this->witness === null || $relative === null || !$this->registry instanceof FilePluginRegistry) {
+            $mutation($this->registry);
+
+            return ['refused' => null, 'said' => []];
+        }
+
+        $scratch = tempnam(sys_get_temp_dir(), 'milpa-registry-');
+        if ($scratch === false) {
+            return ['refused' => 'The plugin registry could not be rehearsed before writing it, so nothing was written.', 'said' => []];
+        }
+        try {
+            $live = rtrim((string) $this->root, '/') . '/' . $relative;
+            is_file($live) ? copy($live, $scratch) : unlink($scratch);
+            $mutation(new FilePluginRegistry($scratch));
+            $bytes = (string) file_get_contents($scratch);
+        } finally {
+            @unlink($scratch);
+        }
+
+        return $this->witness->writeIfItBoots([$relative => $bytes], fn () => $mutation($this->registry), $recovery);
+    }
+
+    /** The registry's file relative to the app root, or null when it is not a file under the root. */
+    private function registryPath(): ?string
+    {
+        if ($this->root === null || !$this->registry instanceof FilePluginRegistry) {
+            return null;
+        }
+        // Both resolved first: the skeleton wires the registry as `config/../storage/plugins.json`, and a path that
+        // still carries `..` is one the witness refuses to build a copy with (measured in greenhouse evidence/1049).
+        $root = realpath($this->root);
+        $dir = realpath(\dirname($this->registry->path()));
+        if ($root === false || $dir === false) {
+            return null;
+        }
+        $file = $dir . '/' . basename($this->registry->path());
+
+        return str_starts_with($file, $root . '/') ? substr($file, \strlen($root) + 1) : null;
     }
 
     /**
@@ -976,26 +1055,49 @@ final readonly class PluginOperations
         ) ?? $contenido;
         // Si no hubo dónde poner el `use`, el FQCN va completo en la lista: sigue siendo válido y no
         // deja el archivo a medias.
+        $entrada = $conUse === $contenido ? '    \\' . $fqcn . '::class,' : '    ' . $corto . '::class,';
+        $nuevo = (string) preg_replace('/\n\];\s*$/', "\n" . $entrada . "\n];\n", $conUse, 1);
+
+        if ($nuevo === $conUse) {
+            return ['ok' => false, 'error' => "could not write {$lista}", 'add_by_hand' => [$entrada]];
+        }
+
         // EL GRAFO NUNCA SE DEJA ABIERTO POR UNA MUTACIÓN (greenhouse decisions/0178). Registrar trae los
         // `requires` de este plugin: si ninguno de los que el próximo arranque cargaría —más éste— provee
         // una capacidad que pide, el host deja de arrancar. Se juzga ANTES de escribir `config/plugins.php`,
         // para que la incoherencia se atrape en el gate y no en el siguiente boot. El apagado ya lo hacía
         // (blockingReasonWithout); ésta es su mitad faltante, y por eso el agente ya no puede brickear la app.
-        if ($this->safety !== null) {
-            $motivo = $this->safety->blockingReasonWith($fqcn);
-            if ($motivo !== null) {
-                return [
-                    'ok' => false,
-                    'error' => "Registering {$corto} would leave this host unable to boot: {$motivo} "
-                        . 'Install or enable a provider for that capability first. Nothing was changed.',
-                ];
+        $graph = function () use ($fqcn, $corto): ?string {
+            $motivo = $this->safety?->blockingReasonWith($fqcn);
+
+            return $motivo === null ? null : "Registering {$corto} would leave this host unable to boot: {$motivo} "
+                . 'Install or enable a provider for that capability first. Nothing was changed.';
+        };
+        $refused = null;
+        $written = false;
+        $write = static function () use ($graph, $lista, $nuevo, &$refused, &$written): void {
+            $refused = $graph();
+            if ($refused === null) {
+                $written = file_put_contents($lista, $nuevo) !== false;
             }
+        };
+
+        // THE HOUSE AS IT WOULD BE BOOTS FIRST (greenhouse decisions/0515) — and BEFORE the graph check, which
+        // reads the class's metadata: a class missing an interface method is a compile fatal in whatever process
+        // loads it, so reading it here killed this very call (measured in evidence/1049). The copy loads it in a
+        // process of its own and says why; the graph check runs only on a class that booted there.
+        $boot = $this->witness?->writeIfItBoots(['config/plugins.php' => $nuevo], $write, recovery: false);
+        if ($boot === null) {
+            $write();
+            $boot = ['refused' => null, 'said' => []];
         }
-
-        $entrada = $conUse === $contenido ? '    \\' . $fqcn . '::class,' : '    ' . $corto . '::class,';
-        $nuevo = (string) preg_replace('/\n\];\s*$/', "\n" . $entrada . "\n];\n", $conUse, 1);
-
-        if ($nuevo === $conUse || file_put_contents($lista, $nuevo) === false) {
+        if ($boot['refused'] !== null) {
+            return ['ok' => false, 'error' => $boot['refused'], ...$boot['said']];
+        }
+        if ($refused !== null) {
+            return ['ok' => false, 'error' => $refused];
+        }
+        if (!$written) {
             return ['ok' => false, 'error' => "could not write {$lista}", 'add_by_hand' => [$entrada]];
         }
 
@@ -1003,6 +1105,7 @@ final readonly class PluginOperations
             'ok' => true,
             'plugin' => $corto,
             'declared_in' => 'config/plugins.php',
+            ...$boot['said'],
             // QUE HAYA QUEDADO ESCRITO NO ES QUE ARRANQUE, y decirlo es la diferencia entre un
             // resultado y una promesa: el kernel lo bota en la siguiente corrida, no en ésta.
             'hint' => 'it boots from the next command or request — run `plugins.list` to see it',

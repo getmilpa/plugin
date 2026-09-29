@@ -22,6 +22,7 @@ use Milpa\Interfaces\Plugin\PluginInstallerInterface;
 use Milpa\Interfaces\Plugin\PluginInterface;
 use Milpa\Interfaces\Plugin\PluginsManagerInterface;
 use Milpa\Plugin\Contracts\ActivationSafetyInterface;
+use Milpa\Plugin\Contracts\BootWitnessInterface;
 use Milpa\Plugin\Contracts\StateBaselineInterface;
 use Milpa\Plugin\Runtime\BootStateBaseline;
 use Milpa\Plugin\Runtime\MetadataActivationSafety;
@@ -53,6 +54,9 @@ use Milpa\Plugin\PluginBase;
 )]
 final class PluginManagementPlugin extends PluginBase implements CommandProvider, PluginInterface
 {
+    /** The class milpa/app-runtime ships as the family's witness — a name, so this package does not depend on it. */
+    public const HOST_WITNESS = 'Milpa\\AppRuntime\\Support\\HouseBootWitness';
+
     public function __construct(DIContainerInterface $container)
     {
         parent::__construct($container);
@@ -163,6 +167,16 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
             ));
         }
 
+        // WHETHER THE HOUSE BOOTS WITH A WRITE, asked before the write (greenhouse decisions/0515). A host
+        // that registered its own witness is asked; otherwise the family's, when the host runs on
+        // milpa/app-runtime — found by name because this package cannot depend on the runtime that
+        // depends on it, and because every entry point (web, terminal, worker) builds this plugin while
+        // only some of them are the runtime's to wire. Neither: judged by the graph alone, as before.
+        $witness = $this->tryGetService(BootWitnessInterface::class);
+        if (!$witness instanceof BootWitnessInterface) {
+            $witness = $root instanceof AppRoot ? self::hostWitness($root->path) : null;
+        }
+
         return (new PluginOperations(
             $registry,
             $installer instanceof PluginInstallerInterface ? $installer : null,
@@ -170,6 +184,18 @@ final class PluginManagementPlugin extends PluginBase implements CommandProvider
             $safety,
             $root instanceof AppRoot ? $root->path : null,
             $baseline,
+            $witness,
         ))->operations();
+    }
+
+    /**
+     * The family's witness for the app at `$root`, or null when the host does not run on milpa/app-runtime.
+     */
+    public static function hostWitness(string $root, string $class = self::HOST_WITNESS): ?BootWitnessInterface
+    {
+        if (!class_exists($class) || !is_subclass_of($class, BootWitnessInterface::class)) {
+            return null;
+        }
+        return new $class($root);
     }
 }
