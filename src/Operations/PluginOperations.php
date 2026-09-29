@@ -747,11 +747,11 @@ final readonly class PluginOperations
         // aceptando la misma intención sin una autoridad mayor.
         if (!$enabled && !$overridden && $this->safety === null) {
             throw new \RuntimeException(
-                "MILPA_PLUGIN_SAFETY_UNAVAILABLE: no se puede deshabilitar {$name} porque este host no "
-                . 'cablea un evaluador de seguridad de plugins, así que nadie puede comprobar si apagarlo '
-                . 'dejaría el grafo sin cerrar. Para ver el efecto SIN cambiar nada: `plugins.simulate`. '
-                . 'Para apagar de todos modos hace falta autoridad explícita: `plugins.disable-unsafe`, '
-                . 'que exige confirmación y no se ofrece a un agente. Nada fue modificado.',
+                "MILPA_PLUGIN_SAFETY_UNAVAILABLE: {$name} cannot be disabled because this host wires no "
+                . 'plugin safety evaluator, so nobody can check whether turning it off would leave the graph '
+                . 'open. To see the effect WITHOUT changing anything: `plugins.simulate`. To turn it off anyway '
+                . 'takes explicit authority: `plugins.disable-unsafe`, which demands confirmation and is not '
+                . 'offered to an agent. Nothing was changed.',
             );
         }
 
@@ -926,22 +926,22 @@ final readonly class PluginOperations
         $name = $this->name($input);
 
         if ($this->root === null) {
-            return ['ok' => false, 'error' => 'este host no declara su raíz, así que no se puede saber qué archivo editar'];
+            return ['ok' => false, 'error' => 'this host declares no root, so there is no knowing which file to edit'];
         }
 
         // El nombre corto basta: la convención del andamio es `src/Plugins/<N>/<N>.php` con
         // `App\Plugins\<N>\<N>`. Un FQCN se acepta y se reduce a su última parte.
         $corto = str_contains($name, '\\') ? (string) substr(strrchr($name, '\\') ?: '', 1) : $name;
         if ($corto === '' || preg_match('/^[A-Z][A-Za-z0-9]*$/', $corto) !== 1) {
-            return ['ok' => false, 'error' => "«{$name}» no parece un nombre de clase de plugin"];
+            return ['ok' => false, 'error' => "«{$name}» does not look like a plugin class name"];
         }
 
         $archivoClase = $this->root . '/src/Plugins/' . $corto . '/' . $corto . '.php';
         if (!is_file($archivoClase)) {
             return [
                 'ok' => false,
-                'error' => "no existe {$archivoClase}: sólo se registran plugins que ya están en el árbol de esta app",
-                'hint' => 'ándalo primero con `make plugin ' . $corto . ' ' . $corto . '`',
+                'error' => "{$archivoClase} does not exist: only plugins already in this app's tree are registered",
+                'hint' => 'scaffold it first: `make` with what=plugin, plugin=' . $corto,
             ];
         }
 
@@ -949,13 +949,13 @@ final readonly class PluginOperations
         $lista = $this->root . '/config/plugins.php';
         $contenido = is_file($lista) ? (string) file_get_contents($lista) : '';
         if ($contenido === '') {
-            return ['ok' => false, 'error' => "no se pudo leer {$lista}"];
+            return ['ok' => false, 'error' => "could not read {$lista}"];
         }
 
         if (str_contains($contenido, $corto . '::class')) {
             // YA ESTABA NO ES UN ERROR, por lo mismo que en `capabilities`: quien pide dos veces
             // recibe que ya está, no que falló — un fallo lo manda a buscar otro camino.
-            return ['ok' => true, 'plugin' => $corto, 'hint' => 'ya estaba declarado — nada que hacer'];
+            return ['ok' => true, 'plugin' => $corto, 'hint' => 'already declared — nothing to do'];
         }
 
         // La forma que se reconoce: un `return [` y un `];` al final. Si el archivo no la tiene, se
@@ -963,7 +963,7 @@ final readonly class PluginOperations
         if (preg_match('/\n\];\s*$/', $contenido) !== 1 || !str_contains($contenido, 'return [')) {
             return [
                 'ok' => false,
-                'error' => "no reconozco la forma de {$lista}, así que no lo edito a ciegas",
+                'error' => "the shape of {$lista} is not one this recognises, so it is not edited blind",
                 'add_by_hand' => ['use ' . $fqcn . ';', '    ' . $corto . '::class,'],
             ];
         }
@@ -996,7 +996,7 @@ final readonly class PluginOperations
         $nuevo = (string) preg_replace('/\n\];\s*$/', "\n" . $entrada . "\n];\n", $conUse, 1);
 
         if ($nuevo === $conUse || file_put_contents($lista, $nuevo) === false) {
-            return ['ok' => false, 'error' => "no se pudo escribir {$lista}", 'add_by_hand' => [$entrada]];
+            return ['ok' => false, 'error' => "could not write {$lista}", 'add_by_hand' => [$entrada]];
         }
 
         return [
@@ -1005,7 +1005,7 @@ final readonly class PluginOperations
             'declared_in' => 'config/plugins.php',
             // QUE HAYA QUEDADO ESCRITO NO ES QUE ARRANQUE, y decirlo es la diferencia entre un
             // resultado y una promesa: el kernel lo bota en la siguiente corrida, no en ésta.
-            'hint' => 'arranca desde el siguiente comando o request — corre `plugins.list` para verlo',
+            'hint' => 'it boots from the next command or request — run `plugins.list` to see it',
         ];
     }
 

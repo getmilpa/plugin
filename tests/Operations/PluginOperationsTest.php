@@ -38,6 +38,9 @@ use PHPUnit\Framework\TestCase;
  */
 final class PluginOperationsTest extends TestCase
 {
+    /** Spanish the house must not speak: its diacritics, or a common word of it (decisions/0514). */
+    private const SPANISH = '/[áéíóúñ¿¡]|\\b(que|para|desde|del|los|las|una|esta|este|siguiente|corre|arranca|nombre|pendiente|objetivo|sesi[oó]n|autorizas?|petici[oó]n|nombra|hecho|resumen|herramientas|contesta|pídele|dile|confirmas|sobre|quiere|correr)\\b/iu';
+
     private InMemoryPluginRegistry $registry;
 
     protected function setUp(): void
@@ -703,7 +706,7 @@ final class PluginOperationsTest extends TestCase
             $r = $this->registrar($raiz, ['name' => $nombre]);
 
             self::assertFalse($r['ok'], \sprintf('«%s» no es un nombre de clase', $nombre));
-            self::assertStringContainsString('no parece un nombre de clase', (string) $r['error']);
+            self::assertStringContainsString('does not look like a plugin class name', (string) $r['error']);
         }
 
         self::assertSame($antes, (string) file_get_contents($raiz . '/config/plugins.php'), 'y nada se escribió');
@@ -746,7 +749,16 @@ final class PluginOperationsTest extends TestCase
         self::assertStringContainsString('HolaPlugin::class,', $lista);
         self::assertStringContainsString('PluginManagementPlugin::class,', $lista, 'y lo que ya estaba sigue');
         // QUE QUEDE ESCRITO NO ES QUE ARRANQUE, y el resultado no lo confunde.
-        self::assertStringContainsString('siguiente comando', (string) $r['hint']);
+        self::assertStringContainsString('next command or request', (string) $r['hint']);
+
+        // And every answer register gives speaks the house's language (greenhouse decisions/0514):
+        // evidence/1036 read «arranca desde el siguiente comando…» in an English-first house.
+        foreach ([$r, $this->registrar($raiz, ['name' => 'HolaPlugin']), $this->registrar($raiz, ['name' => 'NadiePlugin']),
+            $this->registrar($raiz, ['name' => 'not a class'])] as $answer) {
+            self::assertDoesNotMatchRegularExpression(self::SPANISH, (string) json_encode($answer, JSON_UNESCAPED_UNICODE));
+        }
+        // The probe's own positive control: it sees the exact 1036 hint, which has no accent at all.
+        self::assertMatchesRegularExpression(self::SPANISH, 'arranca desde el siguiente comando o request — corre `plugins.list` para verlo');
     }
 
     /**
@@ -803,7 +815,7 @@ final class PluginOperationsTest extends TestCase
         $r = $this->registrar($raiz, ['name' => 'NoExiste']);
 
         self::assertFalse($r['ok']);
-        self::assertStringContainsString('sólo se registran plugins que ya están', (string) $r['error']);
+        self::assertStringContainsString('only plugins already in this app', (string) $r['error']);
         self::assertStringNotContainsString('NoExiste', (string) file_get_contents($raiz . '/config/plugins.php'));
     }
 
@@ -816,7 +828,7 @@ final class PluginOperationsTest extends TestCase
         $r = $this->registrar($raiz, ['name' => 'HolaPlugin']);
 
         self::assertTrue($r['ok']);
-        self::assertStringContainsString('ya estaba', (string) $r['hint']);
+        self::assertStringContainsString('already declared', (string) $r['hint']);
         self::assertSame(1, substr_count((string) file_get_contents($raiz . '/config/plugins.php'), 'HolaPlugin::class,'));
     }
 
@@ -869,7 +881,7 @@ final class PluginOperationsTest extends TestCase
         $r = $this->registrar($raiz, ['name' => 'HolaPlugin']);
 
         self::assertFalse($r['ok']);
-        self::assertStringContainsString('no reconozco la forma', (string) $r['error']);
+        self::assertStringContainsString('is not one this recognises', (string) $r['error']);
         self::assertNotEmpty($r['add_by_hand'], 'con la línea exacta para ponerla a mano');
     }
 }
