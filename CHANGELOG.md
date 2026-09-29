@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.19.0](https://github.com/getmilpa/plugin/compare/v0.18.1...v0.19.0) (2026-09-29)
+
+
+### Features
+
+* **plugins:** a write the house cannot boot with is not written ([#49](https://github.com/getmilpa/plugin/issues/49)) ([f38307c](https://github.com/getmilpa/plugin/commit/f38307cf01af0ae4e9e3a9abbe37f487df6aaf98))
+
 ## [0.18.1](https://github.com/getmilpa/plugin/compare/v0.18.0...v0.18.1) (2026-09-29)
 
 
