@@ -30,6 +30,12 @@ final class FilePluginRegistry implements PluginRegistryInterface
     ) {
     }
 
+    /** The file this registry reads and writes — the one the boot reads. */
+    public function path(): string
+    {
+        return $this->filePath;
+    }
+
     /** Names of all enabled plugins; never throws — a broken store reads as []. */
     public function enabledNames(): array
     {
