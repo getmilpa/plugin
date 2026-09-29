@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.18.1](https://github.com/getmilpa/plugin/compare/v0.18.0...v0.18.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **plugins.register:** answer in English ([#47](https://github.com/getmilpa/plugin/issues/47)) ([425cf11](https://github.com/getmilpa/plugin/commit/425cf11f389b16cb8b47435b6b1d3513d24386e9))
+
 ## [0.18.0](https://github.com/getmilpa/plugin/compare/v0.17.0...v0.18.0) (2026-09-12)
 
 
