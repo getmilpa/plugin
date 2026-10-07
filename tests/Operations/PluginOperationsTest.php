@@ -116,6 +116,75 @@ final class PluginOperationsTest extends TestCase
         self::assertArrayHasKey('plugins.outdated', $seen, 'including the one that is not canonical');
     }
 
+    /**
+     * AN EXAMPLE IS NOT THE EXAM (greenhouse decisions/0594 §5, question 7). A contract is read by every
+     * session before it knows what it will be asked to build; an example that is a real name — a plugin, a
+     * package — has chosen a domain for it. Across every operation's contract, what follows an example is the
+     * FORM of the value: placeholders, and the grammar around them. The rule holds no list of names to avoid.
+     */
+    public function testWhatFollowsAnExampleInAContractIsAForm(): void
+    {
+        $shown = [];
+        foreach ($this->operations($this->installer()) as $operation) {
+            $texts = [$operation->name => $operation->description];
+            foreach ((array) ($operation->inputSchema['properties'] ?? []) as $argument => $property) {
+                $texts["{$operation->name} · {$argument}"] = (string) ($property['description'] ?? '');
+            }
+            foreach ($texts as $where => $text) {
+                foreach (self::shown($text) as $value) {
+                    $shown[] = $value;
+                    self::assertTrue(self::isAForm($value), "{$where} shows «{$value}»: an example shows the form of the value — \"<Name>Plugin\", \"<vendor>/<package>:<constraint>\" — never a name of its own");
+                }
+            }
+        }
+
+        self::assertContains('<Name>Plugin', $shown, 'the control: the contracts do show examples');
+        self::assertContains('<vendor>/<package>:<constraint>', $shown);
+    }
+
+    /** The control of the rule itself: it tells a form from a name, in both directions. */
+    public function testTheRuleTellsAFormFromAName(): void
+    {
+        self::assertSame(['ThingPlugin'], self::shown('Plugin name, e.g. "ThingPlugin".'));
+        self::assertSame([], self::shown('Plugin name.'));
+        self::assertTrue(self::isAForm('<Name>Plugin'));
+        self::assertTrue(self::isAForm('<vendor>/<package>:<constraint>'));
+        self::assertFalse(self::isAForm('ThingPlugin'), 'a name');
+        self::assertFalse(self::isAForm('acme/thing-plugin:^2.0'), 'a name, though it has the shape');
+        self::assertFalse(self::isAForm('<vendor>/thing:<constraint>'), 'a name beside placeholders');
+    }
+
+    /** The refusal that asks for a source shows its form too. */
+    public function testInstallSaysWhatASourceLooksLikeByItsForm(): void
+    {
+        try {
+            ($this->operations($this->installer())['plugins.install']->handler)([]);
+            self::fail('a source is required');
+        } catch (\InvalidArgumentException $e) {
+            self::assertSame(['<vendor>/<package>:<constraint>'], self::shown($e->getMessage()));
+        }
+    }
+
+    /**
+     * The values a text shows as examples: what sits between double quotes after "e.g.".
+     *
+     * @return list<string>
+     */
+    private static function shown(string $text): array
+    {
+        preg_match_all('/\be\.g\.,?\s+"([^"]*)"/', $text, $shown);
+
+        return $shown[1];
+    }
+
+    /** Whether a shown value is a form: placeholders, and nothing around them but the suffix every plugin has. */
+    private static function isAForm(string $value): bool
+    {
+        $rest = preg_replace('/<[^<>\s]+>/', '', $value) ?? $value;
+
+        return $rest !== $value && preg_match('/^(?:Plugin|[\/:])*$/', $rest) === 1;
+    }
+
     private function operations(?PluginInstallerInterface $installer = null, array $declared = []): array
     {
         $byName = [];
