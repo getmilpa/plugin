@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [0.19.1](https://github.com/getmilpa/plugin/compare/v0.19.0...v0.19.1) (2026-10-07)
+
+
+### Bug Fixes
+
+* an example in a contract shows the form of the value, never a name ([#52](https://github.com/getmilpa/plugin/issues/52)) ([8c5cbe4](https://github.com/getmilpa/plugin/commit/8c5cbe4aa25be7a4d8f62d3a0428ccbb25cde6ce))
+
 ## [0.19.0](https://github.com/getmilpa/plugin/compare/v0.18.1...v0.19.0) (2026-09-29)
 
 
