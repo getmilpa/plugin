@@ -332,7 +332,7 @@ final readonly class PluginOperations
                 'type' => 'object',
                 'properties' => ['plugin' => [
                     'type' => 'string',
-                    'description' => 'Plugin name, e.g. "MailPlugin".',
+                    'description' => 'Plugin name, e.g. "<Name>Plugin".',
                     'x-milpa-source' => ['tool' => 'plugins.list', 'key' => 'name'],
                 ]],
                 'required' => ['plugin'],
@@ -393,7 +393,7 @@ final readonly class PluginOperations
                     'type' => 'object',
                     'properties' => ['plugin' => [
                         'type' => 'string',
-                        'description' => 'Plugin name, e.g. "MailPlugin".',
+                        'description' => 'Plugin name, e.g. "<Name>Plugin".',
                         'x-milpa-source' => ['tool' => 'plugins.list', 'key' => 'name'],
                     ]],
                     'required' => ['plugin'],
@@ -466,7 +466,7 @@ final readonly class PluginOperations
                 subject: Subject::Executable,
                 escalatesOn: ['source'],
             ),
-            description: 'Install a plugin from a source coordinate, e.g. "acme/mail-plugin:^2.0".',
+            description: 'Install a plugin from a source coordinate, e.g. "<vendor>/<package>:<constraint>".',
             handler: fn (array $input): array => $this->install($input),
             inputSchema: [
                 'type' => 'object',
@@ -512,7 +512,7 @@ final readonly class PluginOperations
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
-                    'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".'],
+                    'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "<Name>Plugin".'],
                     'version' => ['type' => 'string', 'description' => 'Target version constraint; omitted means the newest.'],
                 ],
                 'required' => ['name'],
@@ -542,7 +542,7 @@ final readonly class PluginOperations
             inputSchema: [
                 'type' => 'object',
                 'properties' => [
-                    'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".'],
+                    'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "<Name>Plugin".'],
                     'keepData' => [
                         'type' => 'boolean',
                         'description' => 'Leave the plugin directory in place instead of deleting it.',
@@ -574,7 +574,7 @@ final readonly class PluginOperations
         return [
             'type' => 'object',
             'properties' => [
-                'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "MailPlugin".'],
+                'name' => ['type' => 'string', 'description' => 'Plugin name, e.g. "<Name>Plugin".'],
             ],
             'required' => ['name'],
         ];
@@ -887,7 +887,7 @@ final readonly class PluginOperations
     {
         $source = $input['source'] ?? null;
         if (!\is_string($source) || $source === '') {
-            throw new \InvalidArgumentException('A source is required, e.g. "acme/mail-plugin:^2.0".');
+            throw new \InvalidArgumentException('A source is required, e.g. "<vendor>/<package>:<constraint>".');
         }
 
         $result = $this->installer?->require($source)
